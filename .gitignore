@@ -1,0 +1,45 @@
+# Development notes and local configuration
+*.local
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Output files
+*.json
+*.log
+security-report.*
+
+# AWS credentials - NEVER commit these
+.aws/
+*.pem
+credentials
+config
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+.eggs/
+
+# PyPI
+.pypirc
+twine.log

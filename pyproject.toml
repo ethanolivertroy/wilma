@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=45", "wheel", "setuptools_scm[toml]>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wilma"
+version = "1.0.0"
+description = "Wilma - AWS Bedrock Security Configuration Checker with GenAI-specific security features"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "GPL-3.0-or-later"}
+authors = [
+    {name = "Ethan Troy"},
+]
+keywords = ["aws", "bedrock", "security", "genai", "ai", "ml", "audit", "compliance", "wilma"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "Topic :: Security",
+    "Topic :: System :: Systems Administration",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+]
+
+dependencies = [
+    "boto3>=1.34.0",
+    "botocore>=1.34.0",
+    "colorama>=0.4.6",
+    "tabulate>=0.9.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/ethanolivertroy/wilma"
+"Bug Tracker" = "https://github.com/ethanolivertroy/wilma/issues"
+Documentation = "https://github.com/ethanolivertroy/wilma#readme"
+
+[project.scripts]
+wilma = "wilma.__main__:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
