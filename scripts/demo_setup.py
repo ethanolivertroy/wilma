@@ -21,13 +21,20 @@ import json
 import time
 import subprocess
 from datetime import datetime
+from opensearchpy import OpenSearch, RequestsHttpConnection
+from requests_aws4auth import AWS4Auth
 
 # Demo resource identifiers
 DEMO_PREFIX = "wilma-demo"
-BUCKET_NAME = f"{DEMO_PREFIX}-kb-{int(time.time())}"
-KB_NAME = f"{DEMO_PREFIX}-knowledge-base"
-KB_ROLE_NAME = f"{DEMO_PREFIX}-kb-role"
-DS_NAME = f"{DEMO_PREFIX}-data-source"
+TIMESTAMP = int(time.time())
+BUCKET_NAME = f"{DEMO_PREFIX}-kb-{TIMESTAMP}"
+LOG_BUCKET_NAME = f"{DEMO_PREFIX}-logs-{TIMESTAMP}"
+KB_NAME = f"{DEMO_PREFIX}-kb-{TIMESTAMP}"
+KB_ROLE_NAME = f"{DEMO_PREFIX}-kb-role-{TIMESTAMP}"
+OVERPERMISSIVE_POLICY_NAME = f"{DEMO_PREFIX}-policy-{TIMESTAMP}"
+DS_NAME = f"{DEMO_PREFIX}-datasource-{TIMESTAMP}"
+COLLECTION_NAME = f"{DEMO_PREFIX}-col-{TIMESTAMP}"
+INDEX_NAME = f"{DEMO_PREFIX}-idx-{TIMESTAMP}"
 
 
 class WilmaDemo:
@@ -43,6 +50,7 @@ class WilmaDemo:
         self.s3 = self.session.client('s3')
         self.iam = self.session.client('iam')
         self.bedrock_agent = self.session.client('bedrock-agent')
+        self.aoss = self.session.client('opensearchserverless')
         self.region = region
         self.account_id = self.session.client('sts').get_caller_identity()['Account']
 
@@ -59,38 +67,65 @@ class WilmaDemo:
 
         try:
             # Step 1: Create S3 bucket (intentionally insecure)
-            print("[1/5] Creating S3 bucket with security issues...")
+            print("[1/7] Creating S3 bucket with security issues...")
             self._create_insecure_s3_bucket()
 
             # Step 2: Upload sample documents
-            print("[2/5] Uploading sample documents...")
+            print("[2/7] Uploading sample documents...")
             self._upload_sample_documents()
 
-            # Step 3: Create IAM role for Knowledge Base
-            print("[3/5] Creating IAM role...")
+            # Step 3: Create overpermissive IAM policy
+            print("[3/7] Creating overpermissive IAM policy...")
+            policy_arn = self._create_overpermissive_iam_policy()
+
+            # Step 4: Create unencrypted log bucket
+            print("[4/7] Creating unencrypted log bucket...")
+            self._create_unencrypted_log_bucket()
+
+            # Step 5: Create IAM role for Knowledge Base
+            print("[5/7] Creating IAM role...")
             role_arn = self._create_kb_role()
 
-            # Step 4: Create OpenSearch Serverless collection (simplified - use existing or skip)
-            print("[4/5] Creating vector store...")
-            collection_arn = self._create_vector_store()
+            # Step 6: Create OpenSearch Serverless collection
+            print("[6/7] Creating vector store...")
+            collection_arn, collection_endpoint = self._create_vector_store(role_arn)
 
-            # Step 5: Create Knowledge Base
-            print("[5/5] Creating Knowledge Base...")
+            # Step 7: Create Knowledge Base
+            print("[7/7] Creating Knowledge Base...")
             kb_id = self._create_knowledge_base(role_arn, collection_arn)
 
             print("\n" + "=" * 70)
             print("DEMO SETUP COMPLETE!")
             print("=" * 70)
             print(f"\nCreated resources:")
-            print(f"  - S3 Bucket: {BUCKET_NAME}")
+            print(f"  - S3 Data Bucket: {BUCKET_NAME}")
+            print(f"  - S3 Log Bucket: {LOG_BUCKET_NAME}")
             print(f"  - IAM Role: {KB_ROLE_NAME}")
+            print(f"  - IAM Policy: {OVERPERMISSIVE_POLICY_NAME}")
+            print(f"  - OpenSearch Collection: {COLLECTION_NAME}")
             print(f"  - Knowledge Base ID: {kb_id}")
-            print(f"\nSecurity issues intentionally introduced:")
-            print(f"  [CRITICAL] S3 bucket has no Block Public Access")
-            print(f"  [HIGH] S3 bucket not encrypted")
-            print(f"  [MEDIUM] S3 versioning disabled")
-            print(f"  [LOW] Knowledge Base has no tags")
-            print(f"\nNext step: Run 'python scripts/demo_setup.py --test' to scan these resources")
+            print(f"\nSecurity issues intentionally introduced (19 checks will be tested):")
+            print(f"\n  Knowledge Base Security (12 checks):")
+            print(f"    [CRITICAL] S3 bucket has no Block Public Access")
+            print(f"    [HIGH] S3 bucket not encrypted")
+            print(f"    [HIGH] OpenSearch collection publicly accessible")
+            print(f"    [MEDIUM] S3 versioning disabled")
+            print(f"    [MEDIUM] No CloudWatch logging for KB")
+            print(f"    [LOW] Knowledge Base has no tags")
+            print(f"    [LOW] Sub-optimal chunking configuration")
+            print(f"\n  IAM Security (2 checks):")
+            print(f"    [CRITICAL] IAM policy grants bedrock:* wildcard access")
+            print(f"\n  Logging & Monitoring (2 checks):")
+            print(f"    [HIGH] Model invocation logging not configured")
+            print(f"    [MEDIUM] No CloudWatch logs for real-time monitoring")
+            print(f"\n  Network Security (1 check):")
+            print(f"    [MEDIUM] No VPC endpoints (traffic over public internet)")
+            print(f"\n  GenAI Security (3 checks):")
+            print(f"    [HIGH] No guardrails to prevent prompt injection")
+            print(f"    [HIGH] Unencrypted log bucket")
+            print(f"    [MEDIUM] No cost anomaly detection configured")
+            print(f"\nExpected Wilma findings: ~14 security issues across all modules")
+            print(f"Next step: Run 'python scripts/demo_setup.py --test' to scan these resources")
 
             return True
 
@@ -146,7 +181,7 @@ class WilmaDemo:
 
         try:
             # Delete Knowledge Base and data sources
-            print("[1/4] Deleting Knowledge Bases...")
+            print("[1/7] Deleting Knowledge Bases...")
             try:
                 kbs = self.bedrock_agent.list_knowledge_bases()
                 for kb in kbs.get('knowledgeBaseSummaries', []):
@@ -172,8 +207,57 @@ class WilmaDemo:
             except Exception as e:
                 errors.append(f"Error listing/deleting KBs: {str(e)}")
 
-            # Delete S3 bucket
-            print("[2/4] Deleting S3 buckets...")
+            # Delete OpenSearch Serverless collections
+            print("[2/7] Deleting OpenSearch Serverless collections...")
+            try:
+                collections = self.aoss.list_collections()
+                for collection in collections.get('collectionSummaries', []):
+                    if DEMO_PREFIX in collection.get('name', ''):
+                        collection_id = collection['id']
+                        collection_name = collection['name']
+                        print(f"  Deleting collection: {collection_name}")
+                        self.aoss.delete_collection(id=collection_id)
+                        print(f"  Deleted: {collection_name}")
+            except Exception as e:
+                errors.append(f"Error deleting OpenSearch collections: {str(e)}")
+
+            # Delete OpenSearch Serverless security policies
+            print("[3/7] Deleting OpenSearch Serverless policies...")
+            try:
+                # Delete encryption policies
+                enc_policies = self.aoss.list_security_policies(type='encryption')
+                for policy in enc_policies.get('securityPolicySummaries', []):
+                    if DEMO_PREFIX in policy.get('name', ''):
+                        self.aoss.delete_security_policy(
+                            name=policy['name'],
+                            type='encryption'
+                        )
+                        print(f"  Deleted encryption policy: {policy['name']}")
+
+                # Delete network policies
+                net_policies = self.aoss.list_security_policies(type='network')
+                for policy in net_policies.get('securityPolicySummaries', []):
+                    if DEMO_PREFIX in policy.get('name', ''):
+                        self.aoss.delete_security_policy(
+                            name=policy['name'],
+                            type='network'
+                        )
+                        print(f"  Deleted network policy: {policy['name']}")
+
+                # Delete data access policies
+                data_policies = self.aoss.list_access_policies(type='data')
+                for policy in data_policies.get('accessPolicySummaries', []):
+                    if DEMO_PREFIX in policy.get('name', ''):
+                        self.aoss.delete_access_policy(
+                            name=policy['name'],
+                            type='data'
+                        )
+                        print(f"  Deleted data access policy: {policy['name']}")
+            except Exception as e:
+                errors.append(f"Error deleting OpenSearch policies: {str(e)}")
+
+            # Delete S3 buckets
+            print("[4/7] Deleting S3 buckets...")
             try:
                 buckets = self.s3.list_buckets()
                 for bucket in buckets['Buckets']:
@@ -196,8 +280,8 @@ class WilmaDemo:
             except Exception as e:
                 errors.append(f"Error deleting S3 buckets: {str(e)}")
 
-            # Delete IAM role
-            print("[3/4] Deleting IAM roles...")
+            # Delete IAM roles
+            print("[5/7] Deleting IAM roles...")
             try:
                 roles = self.iam.list_roles()
                 for role in roles['Roles']:
@@ -233,7 +317,35 @@ class WilmaDemo:
             except Exception as e:
                 errors.append(f"Error deleting IAM roles: {str(e)}")
 
-            print("[4/4] Cleanup verification...")
+            # Delete IAM policies
+            print("[6/7] Deleting IAM policies...")
+            try:
+                policies = self.iam.list_policies(Scope='Local')
+                for policy in policies['Policies']:
+                    if DEMO_PREFIX in policy['PolicyName']:
+                        policy_arn = policy['Arn']
+                        policy_name = policy['PolicyName']
+                        print(f"  Deleting policy: {policy_name}")
+
+                        # Delete all non-default policy versions first
+                        try:
+                            versions = self.iam.list_policy_versions(PolicyArn=policy_arn)
+                            for version in versions['Versions']:
+                                if not version['IsDefaultVersion']:
+                                    self.iam.delete_policy_version(
+                                        PolicyArn=policy_arn,
+                                        VersionId=version['VersionId']
+                                    )
+                        except Exception as e:
+                            errors.append(f"Error deleting policy versions: {str(e)}")
+
+                        # Delete policy
+                        self.iam.delete_policy(PolicyArn=policy_arn)
+                        print(f"  Deleted: {policy_name}")
+            except Exception as e:
+                errors.append(f"Error deleting IAM policies: {str(e)}")
+
+            print("[7/7] Cleanup verification...")
             time.sleep(2)  # Allow AWS eventual consistency
 
             print("\n" + "=" * 70)
@@ -287,6 +399,53 @@ class WilmaDemo:
             )
             print(f"  Uploaded: {filename}")
 
+    def _create_overpermissive_iam_policy(self):
+        """Create IAM policy with overly permissive Bedrock access."""
+        try:
+            # Create policy with wildcard Bedrock permissions (intentional security issue)
+            policy_document = {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": "bedrock:*",  # Overly permissive - grants all Bedrock access
+                        "Resource": "*"
+                    }
+                ]
+            }
+
+            response = self.iam.create_policy(
+                PolicyName=OVERPERMISSIVE_POLICY_NAME,
+                PolicyDocument=json.dumps(policy_document),
+                Description=f"Wilma demo overpermissive policy - created {datetime.now().isoformat()}"
+            )
+
+            policy_arn = response['Policy']['Arn']
+            print(f"  Created policy: {OVERPERMISSIVE_POLICY_NAME}")
+            print(f"  [ISSUE] Policy grants bedrock:* wildcard permissions")
+
+            return policy_arn
+
+        except Exception as e:
+            raise Exception(f"Failed to create IAM policy: {str(e)}")
+
+    def _create_unencrypted_log_bucket(self):
+        """Create S3 bucket for model logs without encryption."""
+        try:
+            if self.region == 'us-east-1':
+                self.s3.create_bucket(Bucket=LOG_BUCKET_NAME)
+            else:
+                self.s3.create_bucket(
+                    Bucket=LOG_BUCKET_NAME,
+                    CreateBucketConfiguration={'LocationConstraint': self.region}
+                )
+
+            print(f"  Created log bucket: {LOG_BUCKET_NAME}")
+            print(f"  [ISSUE] No encryption configured for log storage")
+
+        except Exception as e:
+            raise Exception(f"Failed to create log bucket: {str(e)}")
+
     def _create_kb_role(self):
         """Create IAM role for Knowledge Base."""
         trust_policy = {
@@ -323,6 +482,11 @@ class WilmaDemo:
                         "Effect": "Allow",
                         "Action": ["bedrock:InvokeModel"],
                         "Resource": "*"
+                    },
+                    {
+                        "Effect": "Allow",
+                        "Action": ["aoss:APIAccessAll"],
+                        "Resource": f"arn:aws:aoss:{self.region}:{self.account_id}:collection/*"
                     }
                 ]
             }
@@ -339,21 +503,299 @@ class WilmaDemo:
         except Exception as e:
             raise Exception(f"Failed to create IAM role: {str(e)}")
 
-    def _create_vector_store(self):
-        """Create or reference vector store (simplified for demo)."""
-        # For demo purposes, we'll note that vector store creation is complex
-        # In a real scenario, you'd create an OpenSearch Serverless collection
-        print(f"  [INFO] Vector store creation skipped for demo")
-        print(f"  [INFO] In production, create OpenSearch Serverless collection")
-        return None  # Return None, KB creation will handle this
+    def _create_vector_store(self, role_arn):
+        """Create OpenSearch Serverless collection for vector storage."""
+        try:
+            # Step 1: Create encryption policy
+            print(f"  Creating encryption policy...")
+            encryption_policy = {
+                "Rules": [
+                    {
+                        "ResourceType": "collection",
+                        "Resource": [f"collection/{COLLECTION_NAME}"]
+                    }
+                ],
+                "AWSOwnedKey": True
+            }
+
+            try:
+                self.aoss.create_security_policy(
+                    name=f"{DEMO_PREFIX}-encryption",
+                    type='encryption',
+                    policy=json.dumps(encryption_policy)
+                )
+            except self.aoss.exceptions.ConflictException:
+                print(f"    Encryption policy already exists, continuing...")
+
+            # Step 2: Create network policy (allow public access for demo)
+            print(f"  Creating network policy...")
+            network_policy = [
+                {
+                    "Rules": [
+                        {
+                            "ResourceType": "collection",
+                            "Resource": [f"collection/{COLLECTION_NAME}"]
+                        },
+                        {
+                            "ResourceType": "dashboard",
+                            "Resource": [f"collection/{COLLECTION_NAME}"]
+                        }
+                    ],
+                    "AllowFromPublic": True
+                }
+            ]
+
+            try:
+                self.aoss.create_security_policy(
+                    name=f"{DEMO_PREFIX}-network",
+                    type='network',
+                    policy=json.dumps(network_policy)
+                )
+            except self.aoss.exceptions.ConflictException:
+                print(f"    Network policy already exists, continuing...")
+
+            # Step 3: Create data access policy
+            print(f"  Creating data access policy...")
+            data_policy = [
+                {
+                    "Rules": [
+                        {
+                            "Resource": [f"collection/{COLLECTION_NAME}"],
+                            "Permission": [
+                                "aoss:CreateCollectionItems",
+                                "aoss:DeleteCollectionItems",
+                                "aoss:UpdateCollectionItems",
+                                "aoss:DescribeCollectionItems"
+                            ],
+                            "ResourceType": "collection"
+                        },
+                        {
+                            "Resource": [f"index/{COLLECTION_NAME}/*"],
+                            "Permission": [
+                                "aoss:CreateIndex",
+                                "aoss:DeleteIndex",
+                                "aoss:UpdateIndex",
+                                "aoss:DescribeIndex",
+                                "aoss:ReadDocument",
+                                "aoss:WriteDocument"
+                            ],
+                            "ResourceType": "index"
+                        }
+                    ],
+                    "Principal": [
+                        role_arn,
+                        f"arn:aws:iam::{self.account_id}:root"
+                    ]
+                }
+            ]
+
+            try:
+                self.aoss.create_access_policy(
+                    name=f"{DEMO_PREFIX}-data-access",
+                    type='data',
+                    policy=json.dumps(data_policy)
+                )
+            except self.aoss.exceptions.ConflictException:
+                print(f"    Data access policy already exists, continuing...")
+
+            # Step 4: Create the collection
+            print(f"  Creating OpenSearch Serverless collection...")
+            print(f"    This may take 2-3 minutes...")
+
+            collection_response = self.aoss.create_collection(
+                name=COLLECTION_NAME,
+                type='VECTORSEARCH',
+                description='Wilma demo vector store'
+            )
+
+            collection_id = collection_response['createCollectionDetail']['id']
+            collection_arn = collection_response['createCollectionDetail']['arn']
+
+            # Wait for collection to become active
+            print(f"    Waiting for collection to become ACTIVE...")
+            max_wait = 300  # 5 minutes
+            wait_interval = 10
+            elapsed = 0
+
+            while elapsed < max_wait:
+                response = self.aoss.batch_get_collection(names=[COLLECTION_NAME])
+                if response['collectionDetails']:
+                    status = response['collectionDetails'][0]['status']
+                    if status == 'ACTIVE':
+                        collection_endpoint = response['collectionDetails'][0]['collectionEndpoint']
+                        print(f"    Collection is ACTIVE!")
+                        break
+                    print(f"    Status: {status}, waiting...")
+                time.sleep(wait_interval)
+                elapsed += wait_interval
+            else:
+                raise Exception("Collection creation timed out after 5 minutes")
+
+            # Step 5: Create vector index
+            print(f"  Creating vector index in OpenSearch...")
+            print(f"    Waiting for data access policy to propagate...")
+            time.sleep(15)  # Wait for policy propagation
+
+            credentials = self.session.get_credentials()
+            awsauth = AWS4Auth(
+                credentials.access_key,
+                credentials.secret_key,
+                self.region,
+                'aoss',
+                session_token=credentials.token
+            )
+
+            host = collection_endpoint.replace('https://', '')
+            opensearch_client = OpenSearch(
+                hosts=[{'host': host, 'port': 443}],
+                http_auth=awsauth,
+                use_ssl=True,
+                verify_certs=True,
+                connection_class=RequestsHttpConnection,
+                timeout=300
+            )
+
+            # Create index with vector configuration
+            index_body = {
+                "settings": {
+                    "index.knn": True,
+                    "number_of_shards": 1,
+                    "knn.algo_param.ef_search": 512,
+                    "number_of_replicas": 0,
+                },
+                "mappings": {
+                    "properties": {
+                        "vector": {
+                            "type": "knn_vector",
+                            "dimension": 1024,  # For amazon.titan-embed-text-v2:0
+                            "method": {
+                                "name": "hnsw",
+                                "engine": "faiss",
+                                "parameters": {"ef_construction": 512, "m": 16},
+                            },
+                        },
+                        "text": {"type": "text"},
+                        "metadata": {"type": "text"},
+                    }
+                },
+            }
+
+            opensearch_client.indices.create(index=INDEX_NAME, body=index_body)
+            print(f"    Created vector index: {INDEX_NAME}")
+
+            # Wait for index to be fully available
+            print(f"    Waiting for index to be available...")
+            time.sleep(10)
+
+            # Verify index exists
+            if opensearch_client.indices.exists(index=INDEX_NAME):
+                print(f"    Index verified: {INDEX_NAME}")
+            else:
+                raise Exception(f"Index {INDEX_NAME} was not found after creation")
+
+            print(f"  Created OpenSearch Serverless collection: {COLLECTION_NAME}")
+            return collection_arn, collection_endpoint
+
+        except Exception as e:
+            raise Exception(f"Failed to create vector store: {str(e)}")
 
     def _create_knowledge_base(self, role_arn, collection_arn):
-        """Create Knowledge Base."""
-        # Note: This is a simplified version. Full KB creation requires vector store.
-        print(f"  [INFO] Knowledge Base creation requires OpenSearch Serverless")
-        print(f"  [INFO] See AWS documentation for complete setup")
-        print(f"  [INFO] Demo focuses on S3 and IAM security checks")
-        return "demo-kb-id"
+        """Create Knowledge Base with S3 data source."""
+        try:
+            # Wait a bit for IAM role propagation
+            print(f"  Waiting for IAM role propagation...")
+            time.sleep(10)
+
+            # Create Knowledge Base
+            print(f"  Creating Knowledge Base...")
+            kb_response = self.bedrock_agent.create_knowledge_base(
+                name=KB_NAME,
+                description=f"Wilma demo KB - created {datetime.now().isoformat()}",
+                roleArn=role_arn,
+                knowledgeBaseConfiguration={
+                    'type': 'VECTOR',
+                    'vectorKnowledgeBaseConfiguration': {
+                        'embeddingModelArn': f'arn:aws:bedrock:{self.region}::foundation-model/amazon.titan-embed-text-v2:0'
+                    }
+                },
+                storageConfiguration={
+                    'type': 'OPENSEARCH_SERVERLESS',
+                    'opensearchServerlessConfiguration': {
+                        'collectionArn': collection_arn,
+                        'vectorIndexName': INDEX_NAME,
+                        'fieldMapping': {
+                            'vectorField': 'vector',
+                            'textField': 'text',
+                            'metadataField': 'metadata'
+                        }
+                    }
+                }
+            )
+
+            kb_id = kb_response['knowledgeBase']['knowledgeBaseId']
+            print(f"    Created Knowledge Base: {kb_id}")
+
+            # Wait for KB to become ACTIVE
+            print(f"    Waiting for KB to become ACTIVE...")
+            max_wait = 60  # 1 minute
+            wait_interval = 5
+            elapsed = 0
+
+            while elapsed < max_wait:
+                kb_status = self.bedrock_agent.get_knowledge_base(knowledgeBaseId=kb_id)
+                status = kb_status['knowledgeBase']['status']
+                if status == 'ACTIVE':
+                    print(f"    Knowledge Base is ACTIVE!")
+                    break
+                elif status == 'FAILED':
+                    raise Exception(f"Knowledge Base creation failed")
+                print(f"    Status: {status}, waiting...")
+                time.sleep(wait_interval)
+                elapsed += wait_interval
+            else:
+                print(f"    Warning: KB not ACTIVE yet, but continuing...")
+
+            # Create S3 data source
+            print(f"  Creating S3 data source...")
+            ds_response = self.bedrock_agent.create_data_source(
+                knowledgeBaseId=kb_id,
+                name=DS_NAME,
+                description='Demo S3 data source with sample documents',
+                dataSourceConfiguration={
+                    'type': 'S3',
+                    's3Configuration': {
+                        'bucketArn': f'arn:aws:s3:::{BUCKET_NAME}',
+                    }
+                },
+                vectorIngestionConfiguration={
+                    'chunkingConfiguration': {
+                        'chunkingStrategy': 'FIXED_SIZE',
+                        'fixedSizeChunkingConfiguration': {
+                            'maxTokens': 300,
+                            'overlapPercentage': 20
+                        }
+                    }
+                }
+            )
+
+            data_source_id = ds_response['dataSource']['dataSourceId']
+            print(f"    Created data source: {data_source_id}")
+
+            # Start ingestion job
+            print(f"  Starting ingestion job...")
+            ingestion_response = self.bedrock_agent.start_ingestion_job(
+                knowledgeBaseId=kb_id,
+                dataSourceId=data_source_id
+            )
+
+            ingestion_job_id = ingestion_response['ingestionJob']['ingestionJobId']
+            print(f"    Started ingestion job: {ingestion_job_id}")
+            print(f"    (Ingestion will complete in background)")
+
+            return kb_id
+
+        except Exception as e:
+            raise Exception(f"Failed to create Knowledge Base: {str(e)}")
 
 
 def main():
