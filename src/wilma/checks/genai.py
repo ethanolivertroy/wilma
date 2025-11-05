@@ -1,12 +1,15 @@
 """
-GenAI-specific security checks for AWS Bedrock
+GenAI-Specific Security Checks
+
+Validates threats unique to generative AI systems based on OWASP LLM Top 10 2025.
+
+Checks:
+- Prompt Injection (OWASP LLM01): Guardrail configuration
+- Data Privacy (OWASP LLM06): PII pattern detection in configs
+- Cost Anomaly Detection: Monitors for usage-based attacks
 
 Copyright (C) 2024  Ethan Troy
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
+Licensed under GPL v3
 """
 
 from typing import List, Dict
@@ -14,7 +17,11 @@ from wilma.enums import SecurityMode, RiskLevel
 
 
 class GenAISecurityChecks:
-    """GenAI-specific security checks for Bedrock."""
+    """
+    GenAI threat detection for Bedrock.
+
+    Focuses on OWASP LLM Top 10 risks specific to foundation models.
+    """
 
     # Common PII patterns for data privacy checks
     PII_PATTERNS = {

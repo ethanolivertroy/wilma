@@ -1,12 +1,20 @@
 """
-Report generation for Wilma security checks
+Security Report Generation
+
+Formats security findings for human-readable and machine-parseable output.
+
+Output Formats:
+- Standard Mode (text): User-friendly with simple + technical explanations
+- Learn Mode (text): Educational with security concept explanations
+- JSON: Machine-parseable for CI/CD integration
+
+Report Structure:
+- Summary (counts by risk level, good practices)
+- Findings grouped by severity (CRITICAL > HIGH > MEDIUM > LOW)
+- Each finding includes: risk score, explanation, technical details, fix command
 
 Copyright (C) 2024  Ethan Troy
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
+Licensed under GPL v3
 """
 
 import json
@@ -18,14 +26,26 @@ from wilma.enums import SecurityMode, RiskLevel
 
 
 class ReportGenerator:
-    """Generate security reports in various formats."""
+    """
+    Formats security findings into readable reports.
+
+    Supports both human-friendly text and machine-parseable JSON.
+    """
 
     def __init__(self, checker):
-        """Initialize with a BedrockSecurityChecker instance."""
+        """Initialize with BedrockSecurityChecker containing findings."""
         self.checker = checker
 
     def generate_report(self, output_format: str = 'text') -> str:
-        """Generate a security report based on the mode."""
+        """
+        Generate security report in specified format.
+
+        Args:
+            output_format: 'text' (default) or 'json'
+
+        Returns:
+            Formatted report string
+        """
         if output_format == 'json':
             return self._generate_json_report()
         elif self.checker.mode == SecurityMode.LEARN:

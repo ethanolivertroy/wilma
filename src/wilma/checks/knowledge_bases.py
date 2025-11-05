@@ -1,16 +1,27 @@
 """
-AWS Bedrock Knowledge Bases (RAG) Security Checks Module
+AWS Bedrock Knowledge Bases (RAG) Security Checks
 
-This module implements security validation for AWS Bedrock Knowledge Bases,
-which enable Retrieval-Augmented Generation (RAG) by connecting models to
-your proprietary data sources.
+Validates security of Knowledge Bases that connect foundation models to proprietary data.
 
-Priority: CRITICAL
-Effort: 2-3 weeks
-OWASP Coverage: LLM03 (Training Data Poisoning), LLM06 (Sensitive Info Disclosure)
-MITRE ATLAS: AML.T0020 (Poison Training Data)
+12 Comprehensive Checks:
+1. S3 Bucket Public Access - Prevents data poisoning via public uploads
+2. S3 Bucket Encryption - Protects data at rest
+3. Vector Store Encryption - Secures embeddings (OpenSearch/Aurora/RDS/Pinecone/Redis)
+4. Vector Store Access Control - Validates IAM and network restrictions
+5. PII Detection - Scans for sensitive data in embeddings
+6. Prompt Injection Detection - Identifies malicious patterns in documents
+7. S3 Versioning - Enables recovery from poisoning/corruption
+8. Access Pattern Analysis - Monitors IAM roles and permissions
+9. Chunking Configuration - Reviews parsing strategies
+10. Logging - Validates CloudWatch integration
+11. Resource Tagging - Ensures compliance tracking
+12. Embedding Model Access - Verifies model permissions
 
-See ROADMAP.md Section 1.2 for complete implementation details.
+Threat Coverage:
+- OWASP LLM01: Prompt Injection (indirect via RAG documents)
+- OWASP LLM03: Training Data Poisoning (malicious document injection)
+- OWASP LLM06: Sensitive Information Disclosure (PII in embeddings)
+- MITRE ATLAS AML.T0020: Poison Training Data
 """
 
 from typing import Dict, List, Optional
@@ -18,14 +29,18 @@ from ..enums import RiskLevel
 
 
 class KnowledgeBaseSecurityChecks:
-    """Security checks for AWS Bedrock Knowledge Bases."""
+    """
+    Knowledge Base (RAG) Security Validator
+
+    Each check method returns a list of findings.
+    Uses self.checker.add_finding() to report issues.
+    """
 
     def __init__(self, checker):
         """
-        Initialize knowledge base security checks.
+        Initialize with AWS clients for KB, S3, and vector store access.
 
-        Args:
-            checker: Reference to main BedrockSecurityChecker instance
+        Note: bedrock-agent client provides Knowledge Base API access.
         """
         self.checker = checker
         self.bedrock = checker.bedrock
@@ -36,13 +51,14 @@ class KnowledgeBaseSecurityChecks:
 
     def check_s3_bucket_public_access(self) -> List[Dict]:
         """
-        Check if S3 buckets used for knowledge base data are publicly accessible.
+        Validate Block Public Access is enabled on all KB data source S3 buckets.
 
-        CRITICAL: Public S3 buckets enable data poisoning attacks where
-        attackers can inject malicious documents that get embedded.
+        WHY CRITICAL: Public S3 access enables data poisoning attacks.
+        Attackers can inject malicious documents that get embedded into your KB,
+        causing the model to return poisoned information to users.
 
-        Returns:
-            List of security findings
+        Checks: S3 Block Public Access configuration for all buckets
+        Risk: CRITICAL if disabled
         """
         findings = []
 
@@ -1811,26 +1827,41 @@ class KnowledgeBaseSecurityChecks:
 
     def run_all_checks(self) -> List[Dict]:
         """
-        Run all knowledge base security checks.
+        Execute all 12 Knowledge Base security checks.
+
+        Validates complete RAG security posture including:
+        - Data source security (S3 public access, encryption, versioning)
+        - Vector store security (encryption, access control)
+        - Content security (PII detection, prompt injection patterns)
+        - Operational security (IAM, logging, tagging)
+        - Model access control (embedding model permissions)
 
         Returns:
-            List of all security findings
+            List of all findings from all 12 checks
         """
         print("[CHECK] Running AWS Bedrock Knowledge Base security checks...")
 
-        # All 12 checks implemented
-        self.findings.extend(self.check_s3_bucket_public_access())
-        self.findings.extend(self.check_s3_bucket_encryption())
-        self.findings.extend(self.check_vector_store_encryption())
-        self.findings.extend(self.check_vector_store_access_control())
-        self.findings.extend(self.check_pii_in_embeddings())
-        self.findings.extend(self.check_prompt_injection_in_documents())
-        self.findings.extend(self.check_knowledge_base_versioning())
-        self.findings.extend(self.check_knowledge_base_access_patterns())
-        self.findings.extend(self.check_knowledge_base_chunking_config())
-        self.findings.extend(self.check_knowledge_base_logging())
-        self.findings.extend(self.check_knowledge_base_tags())
-        self.findings.extend(self.check_embedding_model_access())
+        # Data source layer: S3 buckets storing documents
+        self.findings.extend(self.check_s3_bucket_public_access())  # CRITICAL
+        self.findings.extend(self.check_s3_bucket_encryption())      # HIGH
+        self.findings.extend(self.check_knowledge_base_versioning()) # MEDIUM
+
+        # Vector store layer: Embeddings storage
+        self.findings.extend(self.check_vector_store_encryption())      # HIGH
+        self.findings.extend(self.check_vector_store_access_control())  # CRITICAL
+
+        # Content security: Scanning for threats
+        self.findings.extend(self.check_pii_in_embeddings())            # HIGH
+        self.findings.extend(self.check_prompt_injection_in_documents()) # HIGH
+
+        # Operational security: IAM, logging, organization
+        self.findings.extend(self.check_knowledge_base_access_patterns())  # HIGH
+        self.findings.extend(self.check_knowledge_base_logging())          # MEDIUM
+        self.findings.extend(self.check_knowledge_base_tags())             # LOW
+
+        # Model and configuration
+        self.findings.extend(self.check_knowledge_base_chunking_config())  # LOW
+        self.findings.extend(self.check_embedding_model_access())          # MEDIUM
 
         print(f"[INFO] Knowledge Base security checks: {len(self.findings)} findings")
         return self.findings

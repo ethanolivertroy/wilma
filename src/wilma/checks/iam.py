@@ -1,12 +1,16 @@
 """
-IAM and access control security checks
+IAM & Access Control Checks
+
+Validates who can access Bedrock resources and with what permissions.
+
+Checks:
+- Custom model access controls
+- IAM policy over-permissiveness (wildcard actions)
+- Model encryption configuration
+- Resource-based policies
 
 Copyright (C) 2024  Ethan Troy
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
+Licensed under GPL v3
 """
 
 from typing import List, Dict
@@ -14,10 +18,10 @@ from wilma.enums import SecurityMode, RiskLevel
 
 
 class IAMSecurityChecks:
-    """IAM and model access security checks."""
+    """Validates IAM policies and access controls for Bedrock resources."""
 
     def __init__(self, checker):
-        """Initialize with parent checker instance."""
+        """Initialize with parent checker for AWS client access."""
         self.checker = checker
 
     def check_model_access_audit(self) -> List[Dict]:

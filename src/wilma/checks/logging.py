@@ -1,12 +1,18 @@
 """
-Logging and monitoring security checks
+Logging & Monitoring Checks
+
+Validates audit trails and visibility into Bedrock usage.
+
+Checks:
+- Model invocation logging (CloudWatch)
+- CloudTrail data event tracking
+- Log retention configuration
+- Anomaly detection setup
+
+WHY IMPORTANT: Logs enable incident response, compliance, and threat detection.
 
 Copyright (C) 2024  Ethan Troy
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
+Licensed under GPL v3
 """
 
 from typing import List, Dict
@@ -14,10 +20,10 @@ from wilma.enums import SecurityMode, RiskLevel
 
 
 class LoggingSecurityChecks:
-    """Logging and monitoring security checks."""
+    """Validates logging and monitoring configuration for security visibility."""
 
     def __init__(self, checker):
-        """Initialize with parent checker instance."""
+        """Initialize with parent checker for AWS client access."""
         self.checker = checker
 
     def check_logging_monitoring(self) -> List[Dict]:

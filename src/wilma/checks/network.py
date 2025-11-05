@@ -1,12 +1,18 @@
 """
-Network security checks
+Network Security Checks
+
+Validates private connectivity and network isolation for Bedrock.
+
+Checks:
+- VPC endpoints for bedrock-runtime (private connectivity)
+- Network ACLs and security groups
+- Traffic routing configuration
+
+WHY IMPORTANT: VPC endpoints keep AI traffic off public internet,
+reducing interception risk and improving latency.
 
 Copyright (C) 2024  Ethan Troy
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
+Licensed under GPL v3
 """
 
 from typing import List, Dict
@@ -14,10 +20,10 @@ from wilma.enums import SecurityMode, RiskLevel
 
 
 class NetworkSecurityChecks:
-    """Network security checks for VPC endpoints."""
+    """Validates VPC endpoint configuration for private Bedrock connectivity."""
 
     def __init__(self, checker):
-        """Initialize with parent checker instance."""
+        """Initialize with parent checker for AWS client access."""
         self.checker = checker
 
     def check_vpc_endpoints(self) -> List[Dict]:

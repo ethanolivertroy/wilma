@@ -1,17 +1,26 @@
 #!/usr/bin/env python3
 """
-Demo Setup Script for Wilma - AWS Bedrock Security Checker
+Wilma Demo Infrastructure Script
 
-This script creates sample AWS Bedrock Knowledge Base resources with intentional
-security misconfigurations to demonstrate Wilma's detection capabilities.
+Creates AWS resources with INTENTIONAL security issues for testing Wilma's detection.
+
+What it creates:
+- S3 bucket WITHOUT encryption (HIGH risk)
+- S3 bucket WITHOUT versioning (MEDIUM risk)
+- S3 bucket WITHOUT Block Public Access (CRITICAL risk)
+- Overpermissive IAM policy with wildcard actions (HIGH risk)
+- OpenSearch Serverless collection for vector storage
+- Knowledge Base WITHOUT proper tags (LOW risk)
+- Sample documents with potential security issues
 
 Usage:
     python scripts/demo_setup.py --setup      # Create demo resources
-    python scripts/demo_setup.py --test       # Run Wilma against demo resources
-    python scripts/demo_setup.py --cleanup    # Delete all demo resources
-    python scripts/demo_setup.py --all        # Setup, test, and cleanup
+    python scripts/demo_setup.py --test       # Run Wilma scan
+    python scripts/demo_setup.py --cleanup    # Delete all resources
+    python scripts/demo_setup.py --all        # Full cycle (setup → test → cleanup)
 
-WARNING: This creates real AWS resources that may incur costs (minimal, usually free tier).
+Cost: Minimal (< $0.10, usually free tier eligible)
+WARNING: Real AWS resources are created - remember to cleanup!
 """
 
 import boto3
@@ -38,10 +47,21 @@ INDEX_NAME = f"{DEMO_PREFIX}-idx-{TIMESTAMP}"
 
 
 class WilmaDemo:
-    """Demo setup and teardown for Wilma."""
+    """
+    Demo infrastructure manager for Wilma testing.
+
+    Creates intentionally insecure AWS resources to validate Wilma's detection.
+    All resources are tagged with demo prefix for easy identification and cleanup.
+    """
 
     def __init__(self, region='us-east-1', profile=None):
-        """Initialize AWS clients."""
+        """
+        Initialize AWS clients for demo resource management.
+
+        Args:
+            region: AWS region (default: us-east-1, Bedrock home region)
+            profile: AWS CLI profile name (optional)
+        """
         session_params = {'region_name': region}
         if profile:
             session_params['profile_name'] = profile
