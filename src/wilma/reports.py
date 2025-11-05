@@ -37,9 +37,13 @@ class ReportGenerator:
         """Generate a comprehensive security report with clear explanations and technical details."""
         report = []
 
-        # Header
-        report.append("\nAWS Bedrock Security Check")
-        report.append("=" * 50)
+        # Header with ASCII art
+        report.append("")
+        report.append("    ╦ ╦╦╦  ╔╦╗╔═╗  ┌─┐┌─┐┌─┐┬ ┬┬─┐┬┌┬┐┬ ┬  ┬─┐┌─┐┌─┐┌─┐┬─┐┌┬┐")
+        report.append("    ║║║║║  ║║║╠═╣  └─┐├┤ │  │ │├┬┘│ │ └┬┘  ├┬┘├┤ ├─┘│ │├┬┘ │ ")
+        report.append("    ╚╩╝╩╩═╝╩ ╩╩ ╩  └─┘└─┘└─┘└─┘┴└─┴ ┴  ┴   ┴└─└─┘┴  └─┘┴└─ ┴ ")
+        report.append("")
+        report.append("=" * 65)
         report.append(f"Account: {self.checker.account_id} | Region: {self.checker.region}")
         report.append("")
 
@@ -50,7 +54,7 @@ class ReportGenerator:
         low_count = sum(1 for f in self.checker.findings if f['risk_level'] == RiskLevel.LOW)
 
         if self.checker.good_practices:
-            report.append(f"[PASS] Good News: {len(self.checker.good_practices)} security best practices are properly configured")
+            report.append(f"[PASS] Well done! {len(self.checker.good_practices)} security best practices are properly configured")
 
         if critical_count > 0:
             report.append(f"[CRITICAL] {critical_count} critical issue{'s' if critical_count != 1 else ''}")
@@ -63,6 +67,7 @@ class ReportGenerator:
 
         # Good practices
         if self.checker.good_practices:
+            report.append("\n    ◆ ◇ ◆")
             report.append("\n[PASS] WHAT'S WORKING WELL:")
             report.append("-" * 30)
             for practice in self.checker.good_practices:
@@ -73,6 +78,7 @@ class ReportGenerator:
             level_findings = [f for f in self.checker.findings if f['risk_level'] == risk_level]
 
             if level_findings:
+                report.append("\n    ◆ ◇ ◆")
                 report.append(f"\n{risk_level.symbol} {risk_level.label} ISSUES:")
                 report.append("-" * 30)
 
@@ -97,11 +103,13 @@ class ReportGenerator:
                         report.append(f"   {finding['recommendation']}")
 
         # Footer
+        report.append("\n    ◆ ◇ ◆")
         report.append("\n" + "-" * 50)
         report.append("[TIPS]")
         report.append("  - Fix critical issues first")
         report.append("  - Run with --learn to understand each check")
         report.append("  - Run with --fix <issue> for step-by-step remediation")
+        report.append("\nThere! That wasn't so hard, was it?")
 
         return "\n".join(report)
 
@@ -109,10 +117,10 @@ class ReportGenerator:
         """Generate an educational report about the security checks."""
         report = []
 
-        report.append("\nAWS Bedrock Security - Learning Mode")
+        report.append("\nWilma's Security Education - Learning Mode")
         report.append("=" * 50)
-        report.append("\nThis mode explains what each security check does and why it matters.")
-        report.append("\nRun without --learn to perform the actual security audit.")
+        report.append("\nLet me explain what each security check does and why it matters.")
+        report.append("Run without --learn to perform the actual security audit.")
 
         report.append("\n\nSecurity Checks Explained:\n")
 

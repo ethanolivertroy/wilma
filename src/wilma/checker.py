@@ -100,9 +100,25 @@ class BedrockSecurityChecker:
             'practice': practice
         })
 
+    def _print_banner(self):
+        """Display the Wilma ASCII art banner."""
+        banner = """
+    ██╗    ██╗██╗██╗     ███╗   ███╗ █████╗
+    ██║    ██║██║██║     ████╗ ████║██╔══██╗
+    ██║ █╗ ██║██║██║     ██╔████╔██║███████║
+    ██║███╗██║██║██║     ██║╚██╔╝██║██╔══██║
+    ╚███╔███╔╝██║███████╗██║ ╚═╝ ██║██║  ██║
+     ╚══╝╚══╝ ╚═╝╚══════╝╚═╝     ╚═╝╚═╝  ╚═╝
+        """
+        print(banner)
+        print("    ~*~ Bedrock Security Check ~*~")
+        print()
+
     def run_all_checks(self) -> List[Dict]:
         """Run all security checks based on the selected mode."""
-        print(f"\n[START] AWS Bedrock Security Check ({self.mode.value} mode)")
+        self._print_banner()
+        print(f"[START] Running {self.mode.value} mode security check...")
+        print("Let me take a look at your Bedrock security configuration...")
         print(f"Account: {self.account_id} | Region: {self.region}")
         print("=" * 60)
 

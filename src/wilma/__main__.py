@@ -72,7 +72,7 @@ Examples:
         if args.output_file:
             with open(args.output_file, 'w') as f:
                 f.write(report)
-            print(f"\n[SUCCESS] Report saved to: {args.output_file}")
+            print(f"\n[SUCCESS] There! Report saved to: {args.output_file}")
         else:
             print(report)
 
@@ -88,8 +88,8 @@ Examples:
         print("\n\n[WARN] Check interrupted by user")
         sys.exit(3)
     except Exception as e:
-        print(f"\n[ERROR] Error running security checker: {str(e)}")
-        print("\n[TIPS] Troubleshooting tips:")
+        print(f"\n[ERROR] Oh Fred... Error running security checker: {str(e)}")
+        print("\n[TIPS] Let me help you troubleshoot:")
         print("  1. Check your AWS credentials: aws configure list")
         print("  2. Ensure you have the necessary IAM permissions")
         print("  3. Try specifying a region: --region us-east-1")
