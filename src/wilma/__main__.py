@@ -24,8 +24,7 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s                     # Run in beginner mode (default)
-  %(prog)s --expert           # Run with technical details
+  %(prog)s                     # Run security check (default)
   %(prog)s --learn            # Learn what each check does
   %(prog)s --output json      # Output in JSON format
   %(prog)s --fix logging      # Get step-by-step fix for logging issues
@@ -34,7 +33,6 @@ Examples:
 
     parser.add_argument('--profile', help='AWS profile name to use', default=None)
     parser.add_argument('--region', help='AWS region to check', default=None)
-    parser.add_argument('--expert', action='store_true', help='Expert mode with technical details')
     parser.add_argument('--learn', action='store_true', help='Learning mode - explains each check')
     parser.add_argument('--fix', help='Get detailed remediation steps for a specific issue type')
     parser.add_argument('--output', choices=['json', 'text'], default='text', help='Output format')
@@ -45,10 +43,8 @@ Examples:
     # Determine mode
     if args.learn:
         mode = SecurityMode.LEARN
-    elif args.expert:
-        mode = SecurityMode.EXPERT
     else:
-        mode = SecurityMode.BEGINNER
+        mode = SecurityMode.STANDARD
 
     # Handle fix mode
     if args.fix:
@@ -93,11 +89,10 @@ Examples:
         sys.exit(3)
     except Exception as e:
         print(f"\n[ERROR] Error running security checker: {str(e)}")
-        if mode == SecurityMode.BEGINNER:
-            print("\n[TIPS] Troubleshooting tips:")
-            print("  1. Check your AWS credentials: aws configure list")
-            print("  2. Ensure you have the necessary IAM permissions")
-            print("  3. Try specifying a region: --region us-east-1")
+        print("\n[TIPS] Troubleshooting tips:")
+        print("  1. Check your AWS credentials: aws configure list")
+        print("  2. Ensure you have the necessary IAM permissions")
+        print("  3. Try specifying a region: --region us-east-1")
         sys.exit(3)
 
 

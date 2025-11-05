@@ -14,8 +14,7 @@ from enum import Enum
 
 class SecurityMode(Enum):
     """Security check operational modes."""
-    BEGINNER = "beginner"
-    EXPERT = "expert"
+    STANDARD = "standard"
     LEARN = "learn"
 
 

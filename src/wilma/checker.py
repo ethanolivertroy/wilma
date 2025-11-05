@@ -29,7 +29,7 @@ class BedrockSecurityChecker:
     """Enhanced AWS Bedrock Security Checker with GenAI focus."""
 
     def __init__(self, profile_name: str = None, region: str = None,
-                 mode: SecurityMode = SecurityMode.BEGINNER):
+                 mode: SecurityMode = SecurityMode.STANDARD):
         """Initialize the enhanced security checker."""
         self.mode = mode
 
@@ -88,7 +88,7 @@ class BedrockSecurityChecker:
             finding['fix_command'] = fix_command
         if learn_more:
             finding['learn_more'] = learn_more
-        if technical_details and self.mode == SecurityMode.EXPERT:
+        if technical_details:
             finding['technical_details'] = technical_details
 
         self.findings.append(finding)

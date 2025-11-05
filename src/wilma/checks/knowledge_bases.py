@@ -169,16 +169,13 @@ class KnowledgeBaseSecurityChecks:
                             })
 
                         except Exception as e:
-                            if self.checker.mode.name != 'BEGINNER':
-                                print(f"[WARN] Could not check public access for bucket {bucket_name}: {str(e)}")
+                            print(f"[WARN] Could not check public access for bucket {bucket_name}: {str(e)}")
 
                 except Exception as e:
-                    if self.checker.mode.name != 'BEGINNER':
-                        print(f"[WARN] Error checking knowledge base {kb_name}: {str(e)}")
+                    print(f"[WARN] Error checking knowledge base {kb_name}: {str(e)}")
 
         except Exception as e:
-            if self.checker.mode.name != 'BEGINNER':
-                print(f"[ERROR] Failed to list knowledge bases: {str(e)}")
+            print(f"[ERROR] Failed to list knowledge bases: {str(e)}")
 
         return findings
 
@@ -373,16 +370,13 @@ class KnowledgeBaseSecurityChecks:
                             })
 
                         except Exception as e:
-                            if self.checker.mode.name != 'BEGINNER':
-                                print(f"[WARN] Could not check encryption for bucket {bucket_name}: {str(e)}")
+                            print(f"[WARN] Could not check encryption for bucket {bucket_name}: {str(e)}")
 
                 except Exception as e:
-                    if self.checker.mode.name != 'BEGINNER':
-                        print(f"[WARN] Error checking knowledge base {kb_name}: {str(e)}")
+                    print(f"[WARN] Error checking knowledge base {kb_name}: {str(e)}")
 
         except Exception as e:
-            if self.checker.mode.name != 'BEGINNER':
-                print(f"[ERROR] Failed to list knowledge bases: {str(e)}")
+            print(f"[ERROR] Failed to list knowledge bases: {str(e)}")
 
         return findings
 
@@ -431,15 +425,13 @@ class KnowledgeBaseSecurityChecks:
                         # Pinecone - managed service, check configuration
                         pinecone_config = storage_config.get('pineconeConfiguration', {})
                         # Pinecone encrypts at rest by default, but we note it
-                        if self.checker.mode.name == 'EXPERT':
-                            print(f"[INFO] Knowledge Base {kb_name} uses Pinecone (encrypted by default)")
+                        print(f"[INFO] Knowledge Base {kb_name} uses Pinecone (encrypted by default)")
 
                     elif storage_type == 'REDIS_ENTERPRISE_CLOUD':
                         # Redis Enterprise Cloud - check configuration
                         redis_config = storage_config.get('redisEnterpriseCloudConfiguration', {})
                         # Redis Enterprise encrypts at rest, but we note it
-                        if self.checker.mode.name == 'EXPERT':
-                            print(f"[INFO] Knowledge Base {kb_name} uses Redis Enterprise (encrypted by default)")
+                        print(f"[INFO] Knowledge Base {kb_name} uses Redis Enterprise (encrypted by default)")
 
                     elif storage_type == 'RDS':
                         # Aurora/RDS - need to check database encryption
@@ -529,20 +521,16 @@ class KnowledgeBaseSecurityChecks:
                                                 })
 
                                 except Exception as e:
-                                    if self.checker.mode.name != 'BEGINNER':
-                                        print(f"[WARN] Could not check RDS encryption for {cluster_id}: {str(e)}")
+                                    print(f"[WARN] Could not check RDS encryption for {cluster_id}: {str(e)}")
 
                     else:
-                        if self.checker.mode.name != 'BEGINNER':
-                            print(f"[WARN] Unknown storage type {storage_type} for knowledge base {kb_name}")
+                        print(f"[WARN] Unknown storage type {storage_type} for knowledge base {kb_name}")
 
                 except Exception as e:
-                    if self.checker.mode.name != 'BEGINNER':
-                        print(f"[WARN] Error checking knowledge base {kb_name}: {str(e)}")
+                    print(f"[WARN] Error checking knowledge base {kb_name}: {str(e)}")
 
         except Exception as e:
-            if self.checker.mode.name != 'BEGINNER':
-                print(f"[ERROR] Failed to list knowledge bases: {str(e)}")
+            print(f"[ERROR] Failed to list knowledge bases: {str(e)}")
 
         return findings
 
@@ -677,8 +665,7 @@ class KnowledgeBaseSecurityChecks:
                                             })
 
                                 except Exception as e:
-                                    if self.checker.mode.name != 'BEGINNER':
-                                        print(f"[WARN] Could not check OpenSearch collection {collection_name}: {str(e)}")
+                                    print(f"[WARN] Could not check OpenSearch collection {collection_name}: {str(e)}")
 
                     elif storage_type == 'RDS':
                         # Aurora/RDS - check for public accessibility
@@ -761,16 +748,13 @@ class KnowledgeBaseSecurityChecks:
                                                 })
 
                                 except Exception as e:
-                                    if self.checker.mode.name != 'BEGINNER':
-                                        print(f"[WARN] Could not check RDS accessibility for {cluster_id}: {str(e)}")
+                                    print(f"[WARN] Could not check RDS accessibility for {cluster_id}: {str(e)}")
 
                 except Exception as e:
-                    if self.checker.mode.name != 'BEGINNER':
-                        print(f"[WARN] Error checking knowledge base {kb_name}: {str(e)}")
+                    print(f"[WARN] Error checking knowledge base {kb_name}: {str(e)}")
 
         except Exception as e:
-            if self.checker.mode.name != 'BEGINNER':
-                print(f"[ERROR] Failed to list knowledge bases: {str(e)}")
+            print(f"[ERROR] Failed to list knowledge bases: {str(e)}")
 
         return findings
 
@@ -931,11 +915,10 @@ class KnowledgeBaseSecurityChecks:
                                 })
 
                 except Exception as e:
-                    if self.checker.mode.name != 'BEGINNER':
-                        print(f"[WARN] Error checking data sources for KB {kb_name}: {str(e)}")
+                    print(f"[WARN] Error checking data sources for KB {kb_name}: {str(e)}")
 
             # Add informational finding about Macie integration
-            if knowledge_bases and self.checker.mode.name == 'EXPERT':
+            if knowledge_bases:
                 findings.append({
                     'risk_level': RiskLevel.INFO,
                     'title': 'Consider Amazon Macie for comprehensive PII detection',
@@ -960,8 +943,7 @@ class KnowledgeBaseSecurityChecks:
                 })
 
         except Exception as e:
-            if self.checker.mode.name != 'BEGINNER':
-                print(f"[ERROR] Failed to check for PII in knowledge bases: {str(e)}")
+            print(f"[ERROR] Failed to check for PII in knowledge bases: {str(e)}")
 
         return findings
 
@@ -1109,11 +1091,10 @@ class KnowledgeBaseSecurityChecks:
                         # which is beyond basic security checks. Document in expert mode.
 
                 except Exception as e:
-                    if self.checker.mode.name != 'BEGINNER':
-                        print(f"[WARN] Error checking data sources for KB {kb_name}: {str(e)}")
+                    print(f"[WARN] Error checking data sources for KB {kb_name}: {str(e)}")
 
             # Add informational finding about document scanning
-            if knowledge_bases and self.checker.mode.name == 'EXPERT':
+            if knowledge_bases:
                 findings.append({
                     'risk_level': RiskLevel.INFO,
                     'title': 'Consider implementing document-level prompt injection scanning',
@@ -1139,8 +1120,7 @@ class KnowledgeBaseSecurityChecks:
                 })
 
         except Exception as e:
-            if self.checker.mode.name != 'BEGINNER':
-                print(f"[ERROR] Failed to check for prompt injection in knowledge bases: {str(e)}")
+            print(f"[ERROR] Failed to check for prompt injection in knowledge bases: {str(e)}")
 
         return findings
 
@@ -1232,16 +1212,13 @@ class KnowledgeBaseSecurityChecks:
                                 })
 
                         except Exception as e:
-                            if self.checker.mode.name != 'BEGINNER':
-                                print(f"[WARN] Could not check versioning for bucket {bucket_name}: {str(e)}")
+                            print(f"[WARN] Could not check versioning for bucket {bucket_name}: {str(e)}")
 
                 except Exception as e:
-                    if self.checker.mode.name != 'BEGINNER':
-                        print(f"[WARN] Error checking knowledge base {kb_name}: {str(e)}")
+                    print(f"[WARN] Error checking knowledge base {kb_name}: {str(e)}")
 
         except Exception as e:
-            if self.checker.mode.name != 'BEGINNER':
-                print(f"[ERROR] Failed to list knowledge bases: {str(e)}")
+            print(f"[ERROR] Failed to list knowledge bases: {str(e)}")
 
         return findings
 
@@ -1281,11 +1258,11 @@ class KnowledgeBaseSecurityChecks:
                         if role_name:
                             try:
                                 # Get role policies
-                                role_response = self.iam.get_role(RoleName=role_name)
+                                role_response = self.checker.iam.get_role(RoleName=role_name)
                                 role = role_response.get('Role', {})
 
                                 # Check attached policies
-                                attached_policies_response = self.iam.list_attached_role_policies(
+                                attached_policies_response = self.checker.iam.list_attached_role_policies(
                                     RoleName=role_name
                                 )
                                 attached_policies = attached_policies_response.get('AttachedPolicies', [])
@@ -1327,16 +1304,13 @@ class KnowledgeBaseSecurityChecks:
                                         })
 
                             except Exception as e:
-                                if self.checker.mode.name != 'BEGINNER':
-                                    print(f"[WARN] Could not check role {role_name}: {str(e)}")
+                                print(f"[WARN] Could not check role {role_name}: {str(e)}")
 
                 except Exception as e:
-                    if self.checker.mode.name != 'BEGINNER':
-                        print(f"[WARN] Error checking knowledge base {kb_name}: {str(e)}")
+                    print(f"[WARN] Error checking knowledge base {kb_name}: {str(e)}")
 
         except Exception as e:
-            if self.checker.mode.name != 'BEGINNER':
-                print(f"[ERROR] Failed to list knowledge bases: {str(e)}")
+            print(f"[ERROR] Failed to list knowledge bases: {str(e)}")
 
         return findings
 
@@ -1464,12 +1438,10 @@ class KnowledgeBaseSecurityChecks:
                                 })
 
                 except Exception as e:
-                    if self.checker.mode.name != 'BEGINNER':
-                        print(f"[WARN] Error checking knowledge base {kb_name}: {str(e)}")
+                    print(f"[WARN] Error checking knowledge base {kb_name}: {str(e)}")
 
         except Exception as e:
-            if self.checker.mode.name != 'BEGINNER':
-                print(f"[ERROR] Failed to list knowledge bases: {str(e)}")
+            print(f"[ERROR] Failed to list knowledge bases: {str(e)}")
 
         return findings
 
@@ -1589,8 +1561,7 @@ class KnowledgeBaseSecurityChecks:
                                 })
 
                     except Exception as e:
-                        if self.checker.mode.name != 'BEGINNER':
-                            print(f"[WARN] Could not check CloudWatch logs for {kb_name}: {str(e)}")
+                        print(f"[WARN] Could not check CloudWatch logs for {kb_name}: {str(e)}")
 
                     # Check S3 access logging for data sources
                     data_sources_response = self.bedrock_agent.list_data_sources(
@@ -1656,16 +1627,13 @@ class KnowledgeBaseSecurityChecks:
                                 })
 
                         except Exception as e:
-                            if self.checker.mode.name != 'BEGINNER':
-                                print(f"[WARN] Could not check S3 logging for bucket {bucket_name}: {str(e)}")
+                            print(f"[WARN] Could not check S3 logging for bucket {bucket_name}: {str(e)}")
 
                 except Exception as e:
-                    if self.checker.mode.name != 'BEGINNER':
-                        print(f"[WARN] Error checking knowledge base {kb_name}: {str(e)}")
+                    print(f"[WARN] Error checking knowledge base {kb_name}: {str(e)}")
 
         except Exception as e:
-            if self.checker.mode.name != 'BEGINNER':
-                print(f"[ERROR] Failed to list knowledge bases: {str(e)}")
+            print(f"[ERROR] Failed to list knowledge bases: {str(e)}")
 
         return findings
 
@@ -1753,12 +1721,10 @@ class KnowledgeBaseSecurityChecks:
                             })
 
                 except Exception as e:
-                    if self.checker.mode.name != 'BEGINNER':
-                        print(f"[WARN] Error checking knowledge base {kb_name}: {str(e)}")
+                    print(f"[WARN] Error checking knowledge base {kb_name}: {str(e)}")
 
         except Exception as e:
-            if self.checker.mode.name != 'BEGINNER':
-                print(f"[ERROR] Failed to list knowledge bases: {str(e)}")
+            print(f"[ERROR] Failed to list knowledge bases: {str(e)}")
 
         return findings
 
@@ -1836,12 +1802,10 @@ class KnowledgeBaseSecurityChecks:
                         })
 
                 except Exception as e:
-                    if self.checker.mode.name != 'BEGINNER':
-                        print(f"[WARN] Error checking knowledge base {kb_name}: {str(e)}")
+                    print(f"[WARN] Error checking knowledge base {kb_name}: {str(e)}")
 
         except Exception as e:
-            if self.checker.mode.name != 'BEGINNER':
-                print(f"[ERROR] Failed to list knowledge bases: {str(e)}")
+            print(f"[ERROR] Failed to list knowledge bases: {str(e)}")
 
         return findings
 

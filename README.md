@@ -24,8 +24,7 @@ A comprehensive security auditing tool for AWS Bedrock that combines traditional
 - **Guardrail Validation**: Ensures content filtering and safety measures are in place
 
 ### User-Friendly Design
-- **Beginner Mode** (default): Plain English explanations, actionable fixes
-- **Expert Mode**: Technical details for security professionals
+- **Standard Mode** (default): Clear explanations with both simple and technical details
 - **Learning Mode**: Educational content about each security check
 
 ## Prerequisites & Setup
@@ -148,11 +147,8 @@ wilma
 ### Usage
 
 ```bash
-# Run in beginner mode (default)
+# Run security check (default mode)
 wilma
-
-# Expert mode with technical details
-wilma --expert
 
 # Learning mode - understand the security checks
 wilma --learn
@@ -222,10 +218,10 @@ python scripts/demo_setup.py --all --confirm
 - Advanced Guardrails validation (11 checks)
 - Model Fine-Tuning security (11 checks)
 
-## Example Output (Beginner Mode)
+## Example Output
 
 ```
-AWS Bedrock Security Check - Beginner Mode
+AWS Bedrock Security Check
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Good News: 3 security best practices are properly configured
@@ -239,6 +235,7 @@ CRITICAL ISSUES:
    Risk Score: 9/10
 
    What this means: This is like giving someone admin access to all your AI models
+   Technical details: Policy contains wildcard actions (bedrock:*) with no resource restrictions
 
    To fix this, run:
    > aws iam create-policy-version --policy-arn arn:aws:iam::123456789012:policy/BedrockAdminPolicy --policy-document file://restricted-policy.json --set-as-default
@@ -278,8 +275,7 @@ wilma/
 │   ├── Traditional AWS Security
 │   └── GenAI-Specific Security
 ├── Reporting Modes
-│   ├── Beginner (default)
-│   ├── Expert
+│   ├── Standard (default)
 │   └── Learning
 └── Output Formats
     ├── Human-readable text

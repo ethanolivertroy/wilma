@@ -28,20 +28,17 @@ class ReportGenerator:
         """Generate a security report based on the mode."""
         if output_format == 'json':
             return self._generate_json_report()
-        else:
-            if self.checker.mode == SecurityMode.BEGINNER:
-                return self._generate_beginner_report()
-            elif self.checker.mode == SecurityMode.EXPERT:
-                return self._generate_expert_report()
-            else:  # LEARN mode
-                return self._generate_learn_report()
+        elif self.checker.mode == SecurityMode.LEARN:
+            return self._generate_learn_report()
+        else:  # STANDARD mode
+            return self._generate_standard_report()
 
-    def _generate_beginner_report(self) -> str:
-        """Generate a beginner-friendly report with clear guidance."""
+    def _generate_standard_report(self) -> str:
+        """Generate a comprehensive security report with clear explanations and technical details."""
         report = []
 
         # Header
-        report.append("\nAWS Bedrock Security Check - Beginner Mode")
+        report.append("\nAWS Bedrock Security Check")
         report.append("=" * 50)
         report.append(f"Account: {self.checker.account_id} | Region: {self.checker.region}")
         report.append("")
@@ -56,22 +53,22 @@ class ReportGenerator:
             report.append(f"[PASS] Good News: {len(self.checker.good_practices)} security best practices are properly configured")
 
         if critical_count > 0:
-            report.append(f"[CRITICAL] {critical_count} high-risk issues need immediate attention")
+            report.append(f"[CRITICAL] {critical_count} critical issue{'s' if critical_count != 1 else ''}")
         if high_count > 0:
-            report.append(f"[HIGH] {high_count} important issues to address")
+            report.append(f"[HIGH] {high_count} high-risk issue{'s' if high_count != 1 else ''}")
         if medium_count > 0:
-            report.append(f"[MEDIUM] {medium_count} medium-risk issues found")
+            report.append(f"[MEDIUM] {medium_count} medium-risk issue{'s' if medium_count != 1 else ''}")
         if low_count > 0:
-            report.append(f"[LOW] {low_count} low-priority improvements suggested")
+            report.append(f"[LOW] {low_count} low-priority improvement{'s' if low_count != 1 else ''}")
 
         # Good practices
         if self.checker.good_practices:
             report.append("\n[PASS] WHAT'S WORKING WELL:")
             report.append("-" * 30)
-            for practice in self.checker.good_practices[:3]:  # Show top 3
+            for practice in self.checker.good_practices:
                 report.append(f"  - {practice['practice']}")
 
-        # Issues by priority
+        # Issues by priority - SHOW ALL FINDINGS (not limited)
         for risk_level in [RiskLevel.CRITICAL, RiskLevel.HIGH, RiskLevel.MEDIUM, RiskLevel.LOW]:
             level_findings = [f for f in self.checker.findings if f['risk_level'] == risk_level]
 
@@ -79,76 +76,32 @@ class ReportGenerator:
                 report.append(f"\n{risk_level.symbol} {risk_level.label} ISSUES:")
                 report.append("-" * 30)
 
-                for i, finding in enumerate(level_findings[:3], 1):  # Limit to top 3 per level
+                for i, finding in enumerate(level_findings, 1):
                     report.append(f"\n{i}. {finding['issue']}")
                     report.append(f"   Location: {finding['resource']}")
                     report.append(f"   Risk Score: {finding['risk_score']}/10")
-                    report.append(f"   \n   What this means: {finding.get('learn_more', finding['recommendation'])}")
 
+                    # Show simple explanation
+                    if finding.get('learn_more'):
+                        report.append(f"   \n   What this means: {finding['learn_more']}")
+
+                    # Show technical details
+                    if finding.get('technical_details'):
+                        report.append(f"   Technical details: {finding['technical_details']}")
+
+                    # Show recommendation
+                    report.append(f"   \n   To fix this, run:")
                     if finding.get('fix_command'):
-                        report.append(f"   \n   To fix this, run:")
                         report.append(f"   > {finding['fix_command']}")
-
-                if len(level_findings) > 3:
-                    report.append(f"\n   ... and {len(level_findings) - 3} more {risk_level.label.lower()} issues")
+                    else:
+                        report.append(f"   {finding['recommendation']}")
 
         # Footer
         report.append("\n" + "-" * 50)
         report.append("[TIPS]")
         report.append("  - Fix critical issues first")
-        report.append("  - Run with --expert for technical details")
         report.append("  - Run with --learn to understand each check")
         report.append("  - Run with --fix <issue> for step-by-step remediation")
-
-        return "\n".join(report)
-
-    def _generate_expert_report(self) -> str:
-        """Generate a detailed technical report."""
-        report = []
-
-        report.append("\n" + "=" * 80)
-        report.append("AWS BEDROCK SECURITY CONFIGURATION REPORT - EXPERT MODE")
-        report.append("=" * 80)
-        report.append(f"Account: {self.checker.account_id}")
-        report.append(f"Region: {self.checker.region}")
-        report.append(f"Scan Time: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}")
-        report.append(f"Total Findings: {len(self.checker.findings)}")
-        report.append(f"Good Practices: {len(self.checker.good_practices)}")
-
-        # Detailed findings
-        if self.checker.findings:
-            report.append("\n" + "-" * 80)
-            report.append("DETAILED FINDINGS")
-            report.append("-" * 80)
-
-            # Group by category
-            findings_by_category = defaultdict(list)
-            for finding in self.checker.findings:
-                findings_by_category[finding['category']].append(finding)
-
-            for category, category_findings in findings_by_category.items():
-                report.append(f"\n[{category}]")
-                for finding in category_findings:
-                    report.append(f"\n  Risk Level: {finding['risk_level'].label} (Score: {finding['risk_score']}/10)")
-                    report.append(f"  Resource: {finding['resource']}")
-                    report.append(f"  Issue: {finding['issue']}")
-                    report.append(f"  Recommendation: {finding['recommendation']}")
-
-                    if finding.get('technical_details'):
-                        report.append(f"  Technical Details: {finding['technical_details']}")
-
-                    if finding.get('fix_command'):
-                        report.append(f"  Remediation Command: {finding['fix_command']}")
-
-        # Good practices
-        if self.checker.good_practices:
-            report.append("\n" + "-" * 80)
-            report.append("PROPERLY CONFIGURED SECURITY CONTROLS")
-            report.append("-" * 80)
-            for practice in self.checker.good_practices:
-                report.append(f"  ✓ [{practice['category']}] {practice['practice']}")
-
-        report.append("\n" + "=" * 80)
 
         return "\n".join(report)
 
