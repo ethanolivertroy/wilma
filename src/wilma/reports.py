@@ -138,6 +138,12 @@ class ReportGenerator:
                 "why_important": "Helps you comply with privacy laws and protect user data"
             },
             {
+                "name": "Cost Anomaly Detection",
+                "description": "Monitors AI usage costs to detect potential abuse or compromised credentials",
+                "example": "Like getting alerts for unusual credit card charges",
+                "why_important": "Catches unauthorized use before it becomes expensive"
+            },
+            {
                 "name": "Model Access Control",
                 "description": "Controls who can use your AI models and what they can do",
                 "example": "Like having different keys for different rooms in a building",
@@ -156,10 +162,82 @@ class ReportGenerator:
                 "why_important": "Protects sensitive data from interception"
             },
             {
-                "name": "Cost Monitoring",
-                "description": "Alerts you to unusual AI usage that might indicate abuse",
-                "example": "Like getting a notification for unusual credit card charges",
-                "why_important": "Helps detect compromised credentials or abuse early"
+                "name": "Resource Tagging",
+                "description": "Validates that AI resources have proper labels for governance",
+                "example": "Like labeling files in a filing cabinet so you can find them",
+                "why_important": "Enables cost tracking, access control, and compliance reporting"
+            },
+            {
+                "name": "Knowledge Base S3 Public Access",
+                "description": "Prevents public access to S3 buckets containing your knowledge base data",
+                "example": "Making sure your filing cabinets aren't left unlocked on the street",
+                "why_important": "Stops attackers from injecting malicious documents into your AI's knowledge"
+            },
+            {
+                "name": "Knowledge Base S3 Encryption",
+                "description": "Ensures knowledge base documents are encrypted at rest in S3",
+                "example": "Like storing documents in a locked safe, not a cardboard box",
+                "why_important": "Protects your proprietary data if storage is compromised"
+            },
+            {
+                "name": "Vector Store Encryption",
+                "description": "Validates that vector databases (OpenSearch/Aurora) use encryption",
+                "example": "Encrypting the index cards in your library catalog",
+                "why_important": "Secures the AI embeddings that represent your documents"
+            },
+            {
+                "name": "Vector Store Access Control",
+                "description": "Ensures vector databases aren't publicly accessible over the internet",
+                "example": "Not leaving your database server open to the whole world",
+                "why_important": "Prevents unauthorized access to your AI's embedded knowledge"
+            },
+            {
+                "name": "PII Detection in Embeddings",
+                "description": "Scans knowledge base configurations for sensitive personal information",
+                "example": "Making sure SSNs and credit cards aren't in the documents you're indexing",
+                "why_important": "Prevents accidental exposure of private data through AI responses"
+            },
+            {
+                "name": "Prompt Injection in Documents",
+                "description": "Detects malicious instruction patterns in knowledge base source documents",
+                "example": "Finding hidden instructions someone snuck into your reference materials",
+                "why_important": "Stops indirect attacks where bad documents manipulate AI behavior"
+            },
+            {
+                "name": "Knowledge Base Versioning",
+                "description": "Checks if S3 versioning is enabled for knowledge base buckets",
+                "example": "Like having undo/redo for your documents",
+                "why_important": "Lets you recover from accidental deletions or data poisoning attacks"
+            },
+            {
+                "name": "Knowledge Base IAM Permissions",
+                "description": "Audits IAM roles to ensure least-privilege access to knowledge bases",
+                "example": "Not giving the janitor keys to the executive suite",
+                "why_important": "Limits damage if credentials are compromised"
+            },
+            {
+                "name": "Knowledge Base Chunking Strategy",
+                "description": "Reviews how documents are split to prevent information leakage",
+                "example": "Making sure sensitive context doesn't bleed between sections",
+                "why_important": "Reduces risk of exposing unintended information in AI responses"
+            },
+            {
+                "name": "Knowledge Base Logging",
+                "description": "Validates that knowledge base queries and access are being logged",
+                "example": "Keeping a logbook of who looked at which documents",
+                "why_important": "Enables investigation of suspicious activity or data breaches"
+            },
+            {
+                "name": "Knowledge Base Tagging",
+                "description": "Ensures knowledge bases have proper tags for governance",
+                "example": "Labeling which project or team owns each knowledge base",
+                "why_important": "Critical for cost allocation and access control policies"
+            },
+            {
+                "name": "Embedding Model Access",
+                "description": "Checks that embedding models have appropriate access restrictions",
+                "example": "Controlling who can use the translator that converts your docs to AI format",
+                "why_important": "Prevents unauthorized use of custom or expensive models"
             }
         ]
 
