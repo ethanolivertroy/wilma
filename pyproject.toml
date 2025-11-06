@@ -1,0 +1,81 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wilma-sec"
+version = "1.1.0"
+description = "AWS Bedrock security configuration checker"
+readme = "README.md"
+authors = [
+    {name = "Ethan Troy", email = "ethanolivertroy@protonmail.com"}
+]
+license = {text = "GPL-3.0-or-later"}
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+    "Topic :: System :: Systems Administration",
+]
+keywords = ["aws", "bedrock", "security", "genai", "llm"]
+requires-python = ">=3.10"
+dependencies = [
+    "boto3>=1.28.0",
+    "botocore>=1.31.0",
+    "tabulate>=0.9.0",
+    "pyyaml>=6.0.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.3",
+    "pytest-cov>=6.0.0",
+    "pytest-mock>=3.14.0",
+    "moto>=5.0.0",
+    "ruff>=0.7.0",
+    "mypy>=1.8.0",
+    "bandit[toml]>=1.7.5",
+    "boto3-stubs[bedrock]>=1.34.0",
+    "types-pyyaml>=6.0.12",
+    "types-tabulate>=0.9.0",
+    "twine>=4.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/ethanolivertroy/wilma"
+Documentation = "https://github.com/ethanolivertroy/wilma/blob/main/README.md"
+Repository = "https://github.com/ethanolivertroy/wilma"
+Issues = "https://github.com/ethanolivertroy/wilma/issues"
+
+[project.scripts]
+wilma = "wilma.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = []
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
+
+[tool.bandit]
+skips = ["B101", "B106", "B107", "B112", "B601"]
