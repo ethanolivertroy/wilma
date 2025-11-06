@@ -43,3 +43,13 @@ build/
 # PyPI
 .pypirc
 twine.log
+
+# Test and coverage reports
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.tox/
+bandit-report.json
+.mypy_cache/
+.ruff_cache/

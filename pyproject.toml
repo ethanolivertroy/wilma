@@ -3,8 +3,8 @@ requires = ["setuptools>=45", "wheel", "setuptools_scm[toml]>=6.2"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "wilma"
-version = "1.0.0"
+name = "wilma-sec"
+version = "1.1.0"
 description = "Wilma - AWS Bedrock Security Configuration Checker with GenAI-specific security features"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -34,6 +34,7 @@ dependencies = [
     "botocore>=1.34.0",
     "colorama>=0.4.6",
     "tabulate>=0.9.0",
+    "pyyaml>=6.0.0",
 ]
 
 [project.urls]
@@ -49,3 +50,65 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.1.0",
+    "pytest-mock>=3.12.0",
+    "moto>=5.0.0",
+    "ruff>=0.1.0",
+    "bandit[toml]>=1.7.5",
+    "mypy>=1.8.0",
+    "boto3-stubs[bedrock]>=1.34.0",
+    "types-PyYAML>=6.0.0",
+    "types-tabulate>=0.9.0",
+    "build>=1.0.0",
+    "twine>=4.0.0",
+]
+
+# Ruff configuration - Fast Python linter
+[tool.ruff]
+line-length = 100
+target-version = "py38"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "N",   # pep8-naming
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "S",   # flake8-bandit (security)
+    "C4",  # flake8-comprehensions
+    "PT",  # flake8-pytest-style
+]
+ignore = [
+    "S101",  # Allow assert statements in tests
+    "S104",  # Allow binding to all interfaces
+    "S108",  # Allow hardcoded temp directories
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101", "S105", "S106"]  # Allow asserts and hardcoded passwords in tests
+
+# Bandit configuration - Security linter
+[tool.bandit]
+exclude_dirs = ["tests", "demos", ".venv", "venv"]
+skips = ["B101", "B601"]  # Skip assert_used and shell injection in specific contexts
+
+# MyPy configuration - Type checking
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false  # Set to true once types are added
+ignore_missing_imports = true
+exclude = [
+    "tests/",
+    "demos/",
+    "build/",
+    "dist/",
+]

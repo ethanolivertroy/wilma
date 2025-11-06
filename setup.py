@@ -11,8 +11,8 @@ with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
 setup(
-    name="wilma",
-    version="1.0.0",
+    name="wilma-sec",
+    version="1.1.0",
     author="Ethan Troy",
     author_email="",  # Optional - leave empty or use a project email
     description="Wilma - AWS Bedrock Security Configuration Checker with GenAI-specific security features",
@@ -46,6 +46,7 @@ setup(
         "botocore>=1.34.0",
         "colorama>=0.4.6",
         "tabulate>=0.9.0",
+        "pyyaml>=6.0.0",
     ],
     entry_points={
         "console_scripts": [

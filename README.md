@@ -1,10 +1,12 @@
 # Wilma - AWS Bedrock Security Configuration Checker
-[![PyPI version](https://badge.fury.io/py/wilma.svg)](https://pypi.org/project/wilma/)
+[![PyPI version](https://badge.fury.io/py/wilma-sec.svg)](https://pypi.org/project/wilma-sec/)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![Security Audit](https://img.shields.io/badge/Security-Audit%20Tool-red)](https://github.com/ethanolivertroy/wilma)
 [![OWASP](https://img.shields.io/badge/OWASP-LLM%20Top%2010-darkblue)](https://owasp.org/www-project-top-10-for-large-language-model-applications/)
 [![AWS](https://img.shields.io/badge/AWS-Security%20Best%20Practices-orange)](https://aws.amazon.com/security/)
+[![Tests](https://github.com/ethanolivertroy/wilma/actions/workflows/test.yml/badge.svg)](https://github.com/ethanolivertroy/wilma/actions/workflows/test.yml)
+[![Publish](https://github.com/ethanolivertroy/wilma/actions/workflows/publish.yml/badge.svg)](https://github.com/ethanolivertroy/wilma/actions/workflows/publish.yml)
 
 <img width="1536" height="1024" alt="image" src="https://github.com/user-attachments/assets/b5ffcf1d-a416-4a9c-848b-6d7b0723a7a9" />
 
@@ -127,7 +129,10 @@ Bedrock is available in:
 
 **Option 1: Install from PyPI (Recommended)**
 ```bash
-pip install wilma
+pip install wilma-sec
+
+# Or with uv
+uv pip install wilma-sec
 
 # Run directly from command line
 wilma
@@ -305,7 +310,7 @@ jobs:
       
       - name: Run Bedrock Security Audit
         run: |
-          pip install wilma
+          pip install wilma-sec
           wilma --output json > security-report.json
           
           # Fail the build if critical issues found
@@ -365,19 +370,31 @@ We welcome contributions! Areas of interest:
 ### Development Setup
 ```bash
 # Clone and install in development mode
-git clone https://github.com/ethanolivertroy/aws-bedrock-security-config-check.git
-cd aws-bedrock-security-config-check
-make install-dev
+git clone https://github.com/ethanolivertroy/wilma.git
+cd wilma
+
+# Install with development dependencies
+pip install -e ".[dev]"
 
 # Run tests
-make test
+pytest tests/
+
+# Run linting
+ruff check src/ tests/
+
+# Run security scan
+bandit -r src/
 
 # Format code
-make format
+ruff format src/ tests/
 ```
 
 ### Releasing New Versions
-Releases are automated via GitHub Actions. See [RELEASING.md](RELEASING.md) for details.
+Releases are automated via GitHub Actions:
+- Version changes in `pyproject.toml` trigger automatic PyPI publishing
+- All tests must pass before publishing
+- Git tags are automatically created
+- See `.github/workflows/publish.yml` for workflow details
 
 ## Required IAM Permissions
 
@@ -463,7 +480,7 @@ echo 'alias wilma="$HOME/Library/Python/3.11/bin/wilma"' >> ~/.zshrc
 source ~/.zshrc
 
 # Option 4: Install with pipx (recommended for CLI tools)
-pipx install wilma
+pipx install wilma-sec
 ```
 
 ## Project History

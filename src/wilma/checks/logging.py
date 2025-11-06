@@ -16,7 +16,9 @@ Licensed under GPL v3
 """
 
 from typing import List, Dict
+from botocore.exceptions import ClientError
 from wilma.enums import SecurityMode, RiskLevel
+from wilma.utils import handle_aws_error
 
 
 class LoggingSecurityChecks:
@@ -67,7 +69,9 @@ class LoggingSecurityChecks:
                         technical_details="CloudWatch logging not configured for model invocations"
                     )
 
+        except ClientError as e:
+            handle_aws_error(e, "checking logging configuration")
         except Exception as e:
-            print(f"[WARN] Could not check logging configuration: {str(e)}")
+            print(f"[ERROR] Unexpected error checking logging configuration: {str(e)}")
 
         return self.checker.findings

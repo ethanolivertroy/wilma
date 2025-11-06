@@ -19,7 +19,12 @@ Thank you for your interest in contributing! This project welcomes contributions
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
 3. Make your changes
-4. Run tests: `make test`
+4. Run tests and checks:
+   ```bash
+   pytest tests/                    # Run test suite
+   ruff check src/ tests/          # Lint code
+   bandit -r src/                  # Security scan
+   ```
 5. Commit with clear messages
 6. Push to your fork
 7. Open a Pull Request
@@ -28,19 +33,37 @@ Thank you for your interest in contributing! This project welcomes contributions
 ```bash
 git clone https://github.com/ethanolivertroy/wilma.git
 cd wilma
-pip install -e .[dev]
+
+# Install with development dependencies
+pip install -e ".[dev]"
+
+# Verify installation
+wilma --help
 ```
+
+### CI/CD Integration
+All pull requests automatically run:
+- **Tests** across Python 3.8, 3.9, 3.10, 3.11, 3.12
+- **Linting** with ruff
+- **Security scanning** with bandit
+- **Type checking** with mypy
+- **Coverage check** (minimum 80% required)
+
+See `.github/workflows/test.yml` for details.
 
 ### Code Style
 - Follow PEP 8
 - Use meaningful variable names
 - Add comments for complex logic
 - Keep security in mind
+- Code is automatically checked by ruff in CI/CD
 
 ### Testing
+- All tests use mocked AWS services (no real AWS credentials needed)
 - Test with different AWS configurations
-- Verify both beginner and expert modes work
+- Verify standard mode and learning mode work
 - Check JSON output format
+- Aim for 80%+ test coverage
 
 ### Areas of Interest
 - New GenAI attack patterns

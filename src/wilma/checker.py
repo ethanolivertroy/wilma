@@ -17,6 +17,7 @@ from datetime import datetime
 from typing import Dict, List, Any, Optional
 
 from wilma.enums import SecurityMode, RiskLevel
+from wilma.config import WilmaConfig
 from wilma.checks import (
     GenAISecurityChecks,
     IAMSecurityChecks,
@@ -40,7 +41,8 @@ class BedrockSecurityChecker:
     """
 
     def __init__(self, profile_name: str = None, region: str = None,
-                 mode: SecurityMode = SecurityMode.STANDARD):
+                 mode: SecurityMode = SecurityMode.STANDARD,
+                 config: WilmaConfig = None):
         """
         Initialize checker with AWS credentials and check modules.
 
@@ -48,10 +50,12 @@ class BedrockSecurityChecker:
             profile_name: AWS CLI profile name (uses default if None)
             region: AWS region to scan (uses session default if None)
             mode: SecurityMode.STANDARD or SecurityMode.LEARN
+            config: WilmaConfig instance (creates default if None)
 
         Exits with code 3 if AWS credentials are invalid or missing.
         """
         self.mode = mode
+        self.config = config if config is not None else WilmaConfig()
 
         session_params = {}
         if profile_name:

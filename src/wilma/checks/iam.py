@@ -14,7 +14,9 @@ Licensed under GPL v3
 """
 
 from typing import List, Dict
+from botocore.exceptions import ClientError
 from wilma.enums import SecurityMode, RiskLevel
+from wilma.utils import handle_aws_error, paginate_iam_results
 
 
 class IAMSecurityChecks:
@@ -69,6 +71,7 @@ class IAMSecurityChecks:
 
             # Check IAM policies for overly permissive access
             self._check_bedrock_iam_permissions()
+            self._check_aws_managed_policies_on_roles()
 
         except Exception as e:
             print(f"[WARN] Note: Could not complete model access audit: {str(e)}")
@@ -122,3 +125,99 @@ class IAMSecurityChecks:
 
         except Exception as e:
             print(f"[WARN] Could not check IAM policies: {str(e)}")
+
+    def _check_aws_managed_policies_on_roles(self):
+        """Check for AWS-managed policies with Bedrock access attached to roles."""
+        try:
+            # Dangerous AWS-managed policies that grant broad permissions
+            dangerous_managed_policies = {
+                'AdministratorAccess': RiskLevel.CRITICAL,
+                'PowerUserAccess': RiskLevel.HIGH,
+                'ReadOnlyAccess': RiskLevel.LOW,  # Can still read model configurations
+            }
+
+            risky_roles = []
+
+            # List all IAM roles
+            for role in paginate_iam_results(self.checker.iam.list_roles, 'Roles', MaxItems=100):
+                role_name = role['RoleName']
+
+                try:
+                    # Get attached managed policies for this role
+                    attached_policies = self.checker.iam.list_attached_role_policies(RoleName=role_name)
+
+                    for policy in attached_policies.get('AttachedPolicies', []):
+                        policy_name = policy['PolicyName']
+                        policy_arn = policy['PolicyArn']
+
+                        # Check if it's a dangerous AWS-managed policy
+                        if policy_name in dangerous_managed_policies:
+                            risk_level = dangerous_managed_policies[policy_name]
+                            risky_roles.append((role_name, policy_name, risk_level))
+
+                            self.checker.add_finding(
+                                risk_level=risk_level,
+                                category="Access Control",
+                                resource=f"IAM Role: {role_name}",
+                                issue=f"Role has '{policy_name}' policy with unrestricted Bedrock access",
+                                recommendation=f"Replace '{policy_name}' with least-privilege custom policy",
+                                fix_command=(
+                                    f"# Create a restricted policy first, then:\n"
+                                    f"aws iam detach-role-policy --role-name {role_name} --policy-arn {policy_arn} && \n"
+                                    f"aws iam attach-role-policy --role-name {role_name} --policy-arn arn:aws:iam::YOUR_ACCOUNT:policy/RestrictedBedrockPolicy"
+                                ),
+                                learn_more=f"'{policy_name}' grants full or broad AWS access including all Bedrock operations",
+                                technical_details=f"Role '{role_name}' has AWS-managed policy '{policy_name}' attached"
+                            )
+
+                        # Check for bedrock-specific AWS-managed policies (if any exist in the future)
+                        elif 'bedrock' in policy_name.lower() or 'Bedrock' in policy_name:
+                            # Get policy details to check for wildcards
+                            try:
+                                policy_details = self.checker.iam.get_policy(PolicyArn=policy_arn)
+                                default_version = policy_details['Policy']['DefaultVersionId']
+
+                                policy_version = self.checker.iam.get_policy_version(
+                                    PolicyArn=policy_arn,
+                                    VersionId=default_version
+                                )
+
+                                policy_doc = policy_version['PolicyVersion']['Document']
+
+                                # Check for wildcard actions
+                                for statement in policy_doc.get('Statement', []):
+                                    if statement.get('Effect') == 'Allow':
+                                        actions = statement.get('Action', [])
+                                        if isinstance(actions, str):
+                                            actions = [actions]
+
+                                        if any('bedrock:*' in action or action == '*' for action in actions):
+                                            self.checker.add_finding(
+                                                risk_level=RiskLevel.HIGH,
+                                                category="Access Control",
+                                                resource=f"IAM Role: {role_name}",
+                                                issue=f"Role has Bedrock policy '{policy_name}' with wildcard permissions",
+                                                recommendation="Use specific Bedrock actions instead of wildcards",
+                                                fix_command=f"Review and replace policy on role: {role_name}",
+                                                technical_details=f"Policy '{policy_name}' contains wildcard Bedrock actions"
+                                            )
+
+                            except ClientError as e:
+                                # Permission denied to read policy details - skip
+                                if e.response['Error']['Code'] not in ['AccessDenied', 'NoSuchEntity']:
+                                    raise
+
+                except ClientError as e:
+                    error_code = e.response['Error']['Code']
+                    if error_code not in ['AccessDenied', 'NoSuchEntity']:
+                        handle_aws_error(e, f"checking role {role_name}", log_access_denied=False)
+
+            if risky_roles:
+                print(f"[INFO] Found {len(risky_roles)} roles with overly permissive AWS-managed policies")
+            else:
+                self.checker.add_good_practice("Access Control", "No roles with dangerous AWS-managed policies found")
+
+        except ClientError as e:
+            handle_aws_error(e, "checking AWS-managed policies on roles")
+        except Exception as e:
+            print(f"[WARN] Could not check AWS-managed policies: {str(e)}")

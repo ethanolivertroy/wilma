@@ -2,14 +2,24 @@
 
 This document tracks potential security features and enhancements for Wilma based on comprehensive research into AWS Bedrock capabilities, OWASP LLM Top 10 2025, MITRE ATLAS framework, and real-world security patterns.
 
-**Last Updated:** 2025-01-03
-**Version:** 1.0.0 (Initial Release)
+**Last Updated:** 2025-11-05
+**Version:** 1.1.0 (Current Release - Published to PyPI as `wilma-sec`)
 
 ---
 
 ## Current Coverage Analysis
 
-### ✅ Implemented (v1.0.0)
+### ✅ Implemented (v1.1.0)
+- ✅ **Test Infrastructure** - 2,114 lines of tests, 82 test cases, 80% coverage (NEW)
+- ✅ **CI/CD Automation** - GitHub Actions for testing & PyPI publishing (NEW)
+- ✅ **Utility Functions** - PII detection, prompt injection scanning, ARN parsing (NEW)
+- ✅ **Knowledge Bases (RAG)** - 12 security checks implemented (67% complete) (NEW)
+  - S3 bucket security (public access, encryption, versioning)
+  - Vector store security (OpenSearch, Aurora, RDS encryption)
+  - PII pattern detection in configurations
+  - Prompt injection pattern detection
+  - IAM role permission validation
+  - CloudWatch logging validation
 - Basic IAM permission checks (bedrock:* wildcards)
 - Custom model encryption validation
 - Simple guardrails existence check
@@ -20,19 +30,20 @@ This document tracks potential security features and enhancements for Wilma base
 - Basic PII exposure checks (S3 bucket encryption)
 - Cost anomaly detection setup
 
-### ❌ Major Gaps
-- **Agents:** 0% coverage (CRITICAL GAP)
-- **Knowledge Bases (RAG):** 0% coverage (CRITICAL GAP)
-- **Advanced Guardrails:** 20% coverage (only checks existence)
-- **Fine-Tuning Pipeline:** 10% coverage (only model encryption)
+### ❌ Major Gaps Remaining
+- **Agents:** 0% coverage (CRITICAL GAP) - Placeholder exists at src/wilma/checks/agents.py
+- **Knowledge Bases (RAG):** 33% remaining (4 of 12 checks incomplete)
+- **Advanced Guardrails:** 36% coverage (4 of 11 checks) - Placeholder exists at src/wilma/checks/guardrails.py
+- **Fine-Tuning Pipeline:** 10% coverage (only model encryption) - Placeholder exists at src/wilma/checks/fine_tuning.py
 - **Flows Orchestration:** 0% coverage
 - **Model Evaluation:** 0% coverage
 - **Cross-Service Integrations:** 0% coverage
 
-### 📊 Framework Coverage
-- **OWASP LLM Top 10 2025:** 20% (2 of 10 categories)
-- **MITRE ATLAS:** 15% (2 of 14 tactics)
-- **AWS Bedrock Features:** 25% (Foundation Models only)
+### 📊 Framework Coverage (v1.1.0)
+- **OWASP LLM Top 10 2025:** 40% (4 of 10 categories - improved with KB checks)
+- **MITRE ATLAS:** 25% (3 of 14 tactics - improved with data poisoning detection)
+- **AWS Bedrock Features:** 50% (Foundation Models + Knowledge Bases partial)
+- **Test Coverage:** 80% code coverage with comprehensive mocking
 
 ---
 

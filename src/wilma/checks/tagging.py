@@ -16,7 +16,9 @@ Licensed under GPL v3
 """
 
 from typing import List, Dict
+from botocore.exceptions import ClientError
 from wilma.enums import SecurityMode, RiskLevel
+from wilma.utils import handle_aws_error
 
 
 class TaggingSecurityChecks:
@@ -39,16 +41,19 @@ class TaggingSecurityChecks:
         try:
             custom_models = self.checker.bedrock.list_custom_models()
 
+            # Get required tags from configuration
+            required_tags = self.checker.config.required_tags
+
             if custom_models.get('modelSummaries'):
                 for model in custom_models.get('modelSummaries', []):
                     model_name = model['modelName']
+                    model_arn = model['modelArn']
 
                     try:
-                        tags_response = self.checker.bedrock.list_tags_for_resource(resourceARN=model['modelArn'])
+                        tags_response = self.checker.bedrock.list_tags_for_resource(resourceARN=model_arn)
                         existing_tags = [tag['key'] for tag in tags_response.get('tags', [])]
 
-                        important_tags = ['Environment', 'Owner', 'Project']
-                        missing_tags = [tag for tag in important_tags if tag not in existing_tags]
+                        missing_tags = [tag for tag in required_tags if tag not in existing_tags]
 
                         if missing_tags:
                             self.checker.add_finding(
@@ -56,17 +61,26 @@ class TaggingSecurityChecks:
                                 category="Resource Management",
                                 resource=f"Model: {model_name}",
                                 issue=f"Missing organizational tags: {', '.join(missing_tags)}",
-                                recommendation="Add tags to track ownership and costs",
-                                fix_command=f"aws bedrock tag-resource --resource-arn {model['modelArn']} --tags Key=Environment,Value=Production",
+                                recommendation=f"Add required tags: {', '.join(missing_tags)}",
+                                fix_command=(
+                                    f"aws bedrock tag-resource --resource-arn {model_arn} \\\n"
+                                    f"  --tags Key={missing_tags[0]},Value=<your-value>"
+                                ),
                                 learn_more="Tags help you identify who owns what and control costs"
                             )
                         else:
                             self.checker.add_good_practice("Resource Management", f"Model {model_name} is properly tagged")
 
+                    except ClientError as e:
+                        error_code = e.response['Error']['Code']
+                        if error_code not in ['AccessDenied', 'ResourceNotFoundException']:
+                            handle_aws_error(e, f"checking tags for model {model_name}", log_access_denied=False)
                     except Exception as e:
-                        continue
+                        print(f"[WARN] Unexpected error checking model {model_name}: {str(e)}")
 
+        except ClientError as e:
+            handle_aws_error(e, "listing custom models")
         except Exception as e:
-            print(f"[WARN] Could not check resource tagging: {str(e)}")
+            print(f"[ERROR] Unexpected error checking resource tagging: {str(e)}")
 
         return self.checker.findings

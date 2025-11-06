@@ -25,7 +25,9 @@ Threat Coverage:
 """
 
 from typing import Dict, List, Optional
+from botocore.exceptions import ClientError
 from ..enums import RiskLevel
+from wilma.utils import paginate_aws_results, handle_aws_error
 
 
 class KnowledgeBaseSecurityChecks:
@@ -49,6 +51,30 @@ class KnowledgeBaseSecurityChecks:
         self.opensearch = checker.session.client('opensearch')
         self.findings = []
 
+    def _get_all_knowledge_bases(self) -> List[Dict]:
+        """
+        Get all knowledge bases with pagination support.
+
+        Returns list of knowledge base summaries.
+        Handles accounts with >100 knowledge bases.
+        """
+        knowledge_bases = []
+        try:
+            for kb in paginate_aws_results(
+                self.bedrock_agent.list_knowledge_bases,
+                'knowledgeBaseSummaries',
+                token_key='nextToken',
+                token_param='nextToken',
+                maxResults=100
+            ):
+                knowledge_bases.append(kb)
+        except ClientError as e:
+            handle_aws_error(e, "listing knowledge bases")
+        except Exception as e:
+            print(f"[ERROR] Failed to list knowledge bases: {str(e)}")
+
+        return knowledge_bases
+
     def check_s3_bucket_public_access(self) -> List[Dict]:
         """
         Validate Block Public Access is enabled on all KB data source S3 buckets.
@@ -63,9 +89,8 @@ class KnowledgeBaseSecurityChecks:
         findings = []
 
         try:
-            # List all knowledge bases
-            response = self.bedrock_agent.list_knowledge_bases(maxResults=100)
-            knowledge_bases = response.get('knowledgeBaseSummaries', [])
+            # List all knowledge bases (with pagination)
+            knowledge_bases = self._get_all_knowledge_bases()
 
             if not knowledge_bases:
                 return findings
@@ -195,6 +220,53 @@ class KnowledgeBaseSecurityChecks:
 
         return findings
 
+    def _create_s3_encryption_finding(
+        self,
+        risk_level: RiskLevel,
+        title: str,
+        kb_name: str,
+        kb_id: str,
+        ds_name: str,
+        ds_id: str,
+        bucket_name: str,
+        encryption_type: str,
+        description_template: str
+    ) -> Dict:
+        """
+        Helper to create S3 encryption findings (DRY principle).
+
+        Eliminates duplicate code for encryption finding generation.
+        """
+        return {
+            'risk_level': risk_level,
+            'title': title,
+            'description': description_template.format(
+                kb_name=kb_name,
+                bucket_name=bucket_name,
+                ds_name=ds_name
+            ),
+            'location': f'Knowledge Base: {kb_name}, Data Source: {ds_name}',
+            'resource': f's3://{bucket_name}',
+            'remediation': (
+                f'Enable encryption with customer-managed KMS key:\n'
+                f'aws s3api put-bucket-encryption --bucket {bucket_name} \\\n'
+                f'  --server-side-encryption-configuration \'{{\n'
+                f'    "Rules": [{{\n'
+                f'      "ApplyServerSideEncryptionByDefault": {{\n'
+                f'        "SSEAlgorithm": "aws:kms",\n'
+                f'        "KMSMasterKeyID": "your-kms-key-id"\n'
+                f'      }}\n'
+                f'    }}]\n'
+                f'  }}\''
+            ),
+            'details': {
+                'knowledge_base_id': kb_id,
+                'data_source_id': ds_id,
+                'bucket_name': bucket_name,
+                'encryption': encryption_type
+            }
+        }
+
     def check_s3_bucket_encryption(self) -> List[Dict]:
         """
         Verify S3 buckets for knowledge bases use encryption at rest.
@@ -205,9 +277,8 @@ class KnowledgeBaseSecurityChecks:
         findings = []
 
         try:
-            # List all knowledge bases
-            response = self.bedrock_agent.list_knowledge_bases(maxResults=100)
-            knowledge_bases = response.get('knowledgeBaseSummaries', [])
+            # List all knowledge bases (with pagination)
+            knowledge_bases = self._get_all_knowledge_bases()
 
             if not knowledge_bases:
                 return findings
@@ -254,35 +325,21 @@ class KnowledgeBaseSecurityChecks:
                             encryption_rules = encryption_response.get('ServerSideEncryptionConfiguration', {}).get('Rules', [])
 
                             if not encryption_rules:
-                                findings.append({
-                                    'risk_level': RiskLevel.HIGH,
-                                    'title': f'Knowledge Base S3 bucket has no encryption',
-                                    'description': (
-                                        f'Knowledge Base "{kb_name}" uses S3 bucket "{bucket_name}" '
-                                        f'which has no server-side encryption configured. Your proprietary '
-                                        f'knowledge base data is stored unencrypted at rest.'
-                                    ),
-                                    'location': f'Knowledge Base: {kb_name}, Data Source: {ds_name}',
-                                    'resource': f's3://{bucket_name}',
-                                    'remediation': (
-                                        f'Enable encryption with customer-managed KMS key:\n'
-                                        f'aws s3api put-bucket-encryption --bucket {bucket_name} \\\n'
-                                        f'  --server-side-encryption-configuration \'{{\n'
-                                        f'    "Rules": [{{\n'
-                                        f'      "ApplyServerSideEncryptionByDefault": {{\n'
-                                        f'        "SSEAlgorithm": "aws:kms",\n'
-                                        f'        "KMSMasterKeyID": "your-kms-key-id"\n'
-                                        f'      }}\n'
-                                        f'    }}]\n'
-                                        f'  }}\''
-                                    ),
-                                    'details': {
-                                        'knowledge_base_id': kb_id,
-                                        'data_source_id': ds_id,
-                                        'bucket_name': bucket_name,
-                                        'encryption': 'NONE'
-                                    }
-                                })
+                                findings.append(self._create_s3_encryption_finding(
+                                    risk_level=RiskLevel.HIGH,
+                                    title=f'Knowledge Base S3 bucket has no encryption',
+                                    kb_name=kb_name,
+                                    kb_id=kb_id,
+                                    ds_name=ds_name,
+                                    ds_id=ds_id,
+                                    bucket_name=bucket_name,
+                                    encryption_type='NONE',
+                                    description_template=(
+                                        'Knowledge Base "{kb_name}" uses S3 bucket "{bucket_name}" '
+                                        'which has no server-side encryption configured. Your proprietary '
+                                        'knowledge base data is stored unencrypted at rest.'
+                                    )
+                                ))
                             else:
                                 # Check encryption type
                                 for rule in encryption_rules:
@@ -355,35 +412,21 @@ class KnowledgeBaseSecurityChecks:
                                     # else: using customer-managed KMS key - good!
 
                         except self.s3.exceptions.ServerSideEncryptionConfigurationNotFoundError:
-                            findings.append({
-                                'risk_level': RiskLevel.HIGH,
-                                'title': f'Knowledge Base S3 bucket has no encryption',
-                                'description': (
-                                    f'Knowledge Base "{kb_name}" uses S3 bucket "{bucket_name}" '
-                                    f'which has no server-side encryption configured. Your proprietary '
-                                    f'knowledge base data is stored unencrypted at rest.'
-                                ),
-                                'location': f'Knowledge Base: {kb_name}, Data Source: {ds_name}',
-                                'resource': f's3://{bucket_name}',
-                                'remediation': (
-                                    f'Enable encryption with customer-managed KMS key:\n'
-                                    f'aws s3api put-bucket-encryption --bucket {bucket_name} \\\n'
-                                    f'  --server-side-encryption-configuration \'{{\n'
-                                    f'    "Rules": [{{\n'
-                                    f'      "ApplyServerSideEncryptionByDefault": {{\n'
-                                    f'        "SSEAlgorithm": "aws:kms",\n'
-                                    f'        "KMSMasterKeyID": "your-kms-key-id"\n'
-                                    f'      }}\n'
-                                    f'    }}]\n'
-                                    f'  }}\''
-                                ),
-                                'details': {
-                                    'knowledge_base_id': kb_id,
-                                    'data_source_id': ds_id,
-                                    'bucket_name': bucket_name,
-                                    'encryption': 'NONE'
-                                }
-                            })
+                            findings.append(self._create_s3_encryption_finding(
+                                risk_level=RiskLevel.HIGH,
+                                title=f'Knowledge Base S3 bucket has no encryption',
+                                kb_name=kb_name,
+                                kb_id=kb_id,
+                                ds_name=ds_name,
+                                ds_id=ds_id,
+                                bucket_name=bucket_name,
+                                encryption_type='NONE',
+                                description_template=(
+                                    'Knowledge Base "{kb_name}" uses S3 bucket "{bucket_name}" '
+                                    'which has no server-side encryption configured. Your proprietary '
+                                    'knowledge base data is stored unencrypted at rest.'
+                                )
+                            ))
 
                         except Exception as e:
                             print(f"[WARN] Could not check encryption for bucket {bucket_name}: {str(e)}")
@@ -406,9 +449,8 @@ class KnowledgeBaseSecurityChecks:
         findings = []
 
         try:
-            # List all knowledge bases
-            response = self.bedrock_agent.list_knowledge_bases(maxResults=100)
-            knowledge_bases = response.get('knowledgeBaseSummaries', [])
+            # List all knowledge bases (with pagination)
+            knowledge_bases = self._get_all_knowledge_bases()
 
             if not knowledge_bases:
                 return findings
@@ -560,9 +602,8 @@ class KnowledgeBaseSecurityChecks:
         findings = []
 
         try:
-            # List all knowledge bases
-            response = self.bedrock_agent.list_knowledge_bases(maxResults=100)
-            knowledge_bases = response.get('knowledgeBaseSummaries', [])
+            # List all knowledge bases (with pagination)
+            knowledge_bases = self._get_all_knowledge_bases()
 
             if not knowledge_bases:
                 return findings
@@ -650,7 +691,7 @@ class KnowledgeBaseSecurityChecks:
                                                             })
 
                                                 except json.JSONDecodeError:
-                                                    pass
+                                                    print(f"[WARN] Could not parse network policy for collection {collection_name}")
 
                                         except aoss.exceptions.ResourceNotFoundException:
                                             # No network policy - potentially public
@@ -679,6 +720,99 @@ class KnowledgeBaseSecurityChecks:
                                                     'network_policy': 'NONE'
                                                 }
                                             })
+
+                                        # Check data access policy (in addition to network policy)
+                                        try:
+                                            data_policy = aoss.get_access_policy(
+                                                name=f"{collection_name}-data",
+                                                type='data'
+                                            )
+
+                                            policy_detail = data_policy.get('accessPolicyDetail', {})
+                                            policy_document = policy_detail.get('policy', '')
+
+                                            # Parse data access policy
+                                            import json
+                                            if policy_document:
+                                                try:
+                                                    policy_json = json.loads(policy_document)
+
+                                                    # Check for overly permissive principals
+                                                    has_wildcard_principal = False
+                                                    for rule in policy_json:
+                                                        principals = rule.get('Principal', [])
+                                                        if isinstance(principals, str):
+                                                            principals = [principals]
+
+                                                        # Check for wildcards in principals
+                                                        for principal in principals:
+                                                            if principal == '*' or ':*' in principal:
+                                                                has_wildcard_principal = True
+                                                                break
+
+                                                    if has_wildcard_principal:
+                                                        findings.append({
+                                                            'risk_level': RiskLevel.HIGH,
+                                                            'title': f'Knowledge Base OpenSearch collection has overly permissive data access policy',
+                                                            'description': (
+                                                                f'Knowledge Base "{kb_name}" uses OpenSearch Serverless '
+                                                                f'collection "{collection_name}" with a data access policy '
+                                                                f'that grants access to wildcard principals. This may allow '
+                                                                f'unintended IAM principals to access your vector embeddings.'
+                                                            ),
+                                                            'location': f'Knowledge Base: {kb_name}',
+                                                            'resource': collection_name,
+                                                            'remediation': (
+                                                                f'Update data access policy to specific IAM principals:\n'
+                                                                f'aws opensearchserverless update-access-policy \\\n'
+                                                                f'  --name {collection_name}-data \\\n'
+                                                                f'  --type data \\\n'
+                                                                f'  --policy \'[{{"Rules":[{{"ResourceType":"index",'
+                                                                f'"Resource":["index/{collection_name}/*"],'
+                                                                f'"Permission":["aoss:ReadDocument","aoss:WriteDocument"]}}],'
+                                                                f'"Principal":["arn:aws:iam::ACCOUNT:role/SpecificRole"]}}]\''
+                                                            ),
+                                                            'details': {
+                                                                'knowledge_base_id': kb_id,
+                                                                'collection_name': collection_name,
+                                                                'issue': 'Wildcard principals in data access policy'
+                                                            }
+                                                        })
+
+                                                except json.JSONDecodeError:
+                                                    print(f"[WARN] Could not parse data access policy for collection {collection_name}")
+
+                                        except aoss.exceptions.ResourceNotFoundException:
+                                            # No data access policy
+                                            findings.append({
+                                                'risk_level': RiskLevel.HIGH,
+                                                'title': f'Knowledge Base OpenSearch collection has no data access policy',
+                                                'description': (
+                                                    f'Knowledge Base "{kb_name}" uses OpenSearch Serverless '
+                                                    f'collection "{collection_name}" which has no data access policy. '
+                                                    f'Collection may be inaccessible or have default overly permissive access.'
+                                                ),
+                                                'location': f'Knowledge Base: {kb_name}',
+                                                'resource': collection_name,
+                                                'remediation': (
+                                                    f'Create data access policy with least-privilege IAM principals:\n'
+                                                    f'aws opensearchserverless create-access-policy \\\n'
+                                                    f'  --name {collection_name}-data \\\n'
+                                                    f'  --type data \\\n'
+                                                    f'  --policy \'[{{"Rules":[{{"ResourceType":"index",'
+                                                    f'"Resource":["index/{collection_name}/*"],'
+                                                    f'"Permission":["aoss:ReadDocument","aoss:WriteDocument"]}}],'
+                                                    f'"Principal":["arn:aws:iam::ACCOUNT:role/KnowledgeBaseRole"]}}]\''
+                                                ),
+                                                'details': {
+                                                    'knowledge_base_id': kb_id,
+                                                    'collection_name': collection_name,
+                                                    'data_policy': 'NONE'
+                                                }
+                                            })
+
+                                        except Exception as e:
+                                            print(f"[WARN] Could not check data access policy for {collection_name}: {str(e)}")
 
                                 except Exception as e:
                                     print(f"[WARN] Could not check OpenSearch collection {collection_name}: {str(e)}")
@@ -794,9 +928,8 @@ class KnowledgeBaseSecurityChecks:
         }
 
         try:
-            # List all knowledge bases
-            response = self.bedrock_agent.list_knowledge_bases(maxResults=100)
-            knowledge_bases = response.get('knowledgeBaseSummaries', [])
+            # List all knowledge bases (with pagination)
+            knowledge_bases = self._get_all_knowledge_bases()
 
             if not knowledge_bases:
                 return findings
@@ -933,24 +1066,29 @@ class KnowledgeBaseSecurityChecks:
                 except Exception as e:
                     print(f"[WARN] Error checking data sources for KB {kb_name}: {str(e)}")
 
-            # Add informational finding about Macie integration
+            # Add informational finding about scan limitations and Macie integration
             if knowledge_bases:
                 findings.append({
                     'risk_level': RiskLevel.INFO,
-                    'title': 'Consider Amazon Macie for comprehensive PII detection',
+                    'title': '⚠️  LIMITATION: PII check is metadata-only, does not scan actual documents',
                     'description': (
-                        'This check uses basic pattern matching for PII detection. '
-                        'For comprehensive PII scanning of documents in S3 buckets, '
-                        'consider enabling Amazon Macie with automated discovery jobs.'
+                        '**IMPORTANT**: This PII check only scans metadata (bucket names, prefixes, tags, '
+                        'configuration settings). It does NOT scan the actual document content in S3 buckets '
+                        'where PII is most likely to exist.\n\n'
+                        'For comprehensive PII detection in actual Knowledge Base documents, use Amazon Macie '
+                        'with automated discovery jobs to scan S3 bucket contents.\n\n'
+                        'Note: Scanning millions of documents would be slow and expensive, which is why this '
+                        'check focuses on configuration-level risks only.'
                     ),
                     'location': 'All Knowledge Bases',
                     'resource': 'N/A',
                     'remediation': (
-                        'Enable Amazon Macie for advanced PII detection:\n'
-                        '1. Enable Macie in your AWS account\n'
-                        '2. Create sensitive data discovery jobs for KB S3 buckets\n'
-                        '3. Configure alerts for PII findings\n'
-                        '4. Implement automated remediation workflows'
+                        'To scan actual document content for PII:\n'
+                        '1. Enable Amazon Macie in your AWS account\n'
+                        '2. Create sensitive data discovery jobs targeting KB S3 buckets\n'
+                        '3. Configure automated alerts for PII findings\n'
+                        '4. Implement data classification and protection workflows\n'
+                        '5. Alternative: Use AWS Comprehend DetectPII API for custom scanning'
                     ),
                     'details': {
                         'current_detection': 'pattern-based',
@@ -1000,9 +1138,8 @@ class KnowledgeBaseSecurityChecks:
         ]
 
         try:
-            # List all knowledge bases
-            response = self.bedrock_agent.list_knowledge_bases(maxResults=100)
-            knowledge_bases = response.get('knowledgeBaseSummaries', [])
+            # List all knowledge bases (with pagination)
+            knowledge_bases = self._get_all_knowledge_bases()
 
             if not knowledge_bases:
                 return findings
@@ -1109,15 +1246,24 @@ class KnowledgeBaseSecurityChecks:
                 except Exception as e:
                     print(f"[WARN] Error checking data sources for KB {kb_name}: {str(e)}")
 
-            # Add informational finding about document scanning
+            # Add informational finding about scan limitations
             if knowledge_bases:
                 findings.append({
                     'risk_level': RiskLevel.INFO,
-                    'title': 'Consider implementing document-level prompt injection scanning',
+                    'title': '⚠️  LIMITATION: Prompt injection check is metadata-only, does not scan actual documents',
                     'description': (
-                        'This check analyzes knowledge base and data source metadata for '
-                        'prompt injection patterns. For comprehensive protection, consider '
-                        'implementing document-level scanning of S3 objects before ingestion.'
+                        '**IMPORTANT**: This prompt injection check only scans metadata (KB names, '
+                        'data source prefixes, configuration strings). It does NOT scan the actual '
+                        'document content in S3 buckets where indirect prompt injection attacks are '
+                        'most likely to be embedded.\n\n'
+                        'Indirect prompt injection is a serious threat where attackers poison documents '
+                        'that get retrieved into context. For comprehensive protection, implement '
+                        'document-level scanning with:\n'
+                        '• Lambda preprocessing functions\n'
+                        '• Guardrails on retrieval context\n'
+                        '• Custom NLP-based scanning\n\n'
+                        'Note: Scanning millions of documents would be slow and expensive, which is why '
+                        'this check focuses on configuration-level risks only.'
                     ),
                     'location': 'All Knowledge Bases',
                     'resource': 'N/A',
@@ -1150,9 +1296,8 @@ class KnowledgeBaseSecurityChecks:
         findings = []
 
         try:
-            # List all knowledge bases
-            response = self.bedrock_agent.list_knowledge_bases(maxResults=100)
-            knowledge_bases = response.get('knowledgeBaseSummaries', [])
+            # List all knowledge bases (with pagination)
+            knowledge_bases = self._get_all_knowledge_bases()
 
             if not knowledge_bases:
                 return findings
@@ -1248,9 +1393,8 @@ class KnowledgeBaseSecurityChecks:
         findings = []
 
         try:
-            # List all knowledge bases
-            response = self.bedrock_agent.list_knowledge_bases(maxResults=100)
-            knowledge_bases = response.get('knowledgeBaseSummaries', [])
+            # List all knowledge bases (with pagination)
+            knowledge_bases = self._get_all_knowledge_bases()
 
             if not knowledge_bases:
                 return findings
@@ -1319,6 +1463,89 @@ class KnowledgeBaseSecurityChecks:
                                             }
                                         })
 
+                                # Check inline policies (not just attached managed policies)
+                                try:
+                                    inline_policies_response = self.checker.iam.list_role_policies(
+                                        RoleName=role_name
+                                    )
+                                    inline_policy_names = inline_policies_response.get('PolicyNames', [])
+
+                                    for inline_policy_name in inline_policy_names:
+                                        # Get inline policy document
+                                        policy_response = self.checker.iam.get_role_policy(
+                                            RoleName=role_name,
+                                            PolicyName=inline_policy_name
+                                        )
+
+                                        policy_doc = policy_response.get('PolicyDocument', {})
+
+                                        # Check for overly permissive actions
+                                        for statement in policy_doc.get('Statement', []):
+                                            if statement.get('Effect') == 'Allow':
+                                                actions = statement.get('Action', [])
+                                                if isinstance(actions, str):
+                                                    actions = [actions]
+
+                                                resources = statement.get('Resource', [])
+                                                if isinstance(resources, str):
+                                                    resources = [resources]
+
+                                                # Check for dangerous wildcard permissions
+                                                has_wildcard_action = any(action == '*' for action in actions)
+                                                has_wildcard_resource = any(res == '*' for res in resources)
+
+                                                if has_wildcard_action and has_wildcard_resource:
+                                                    findings.append({
+                                                        'risk_level': RiskLevel.CRITICAL,
+                                                        'title': f'Knowledge Base role has inline policy with full wildcard permissions',
+                                                        'description': (
+                                                            f'Knowledge Base "{kb_name}" uses IAM role "{role_name}" '
+                                                            f'which has an inline policy "{inline_policy_name}" with '
+                                                            f'Action:"*" and Resource:"*". This grants unrestricted '
+                                                            f'access to all AWS services.'
+                                                        ),
+                                                        'location': f'Knowledge Base: {kb_name}',
+                                                        'resource': role_arn,
+                                                        'remediation': (
+                                                            f'Replace wildcard inline policy with least-privilege policy:\n'
+                                                            f'1. Review required permissions for the knowledge base\n'
+                                                            f'2. Create restricted policy with specific actions and resources\n'
+                                                            f'3. Delete inline policy: aws iam delete-role-policy --role-name {role_name} --policy-name {inline_policy_name}\n'
+                                                            f'4. Attach new restricted policy'
+                                                        ),
+                                                        'details': {
+                                                            'knowledge_base_id': kb_id,
+                                                            'role_name': role_name,
+                                                            'inline_policy_name': inline_policy_name,
+                                                            'issue': 'Full wildcard permissions (Action:* Resource:*)'
+                                                        }
+                                                    })
+                                                elif has_wildcard_action:
+                                                    findings.append({
+                                                        'risk_level': RiskLevel.HIGH,
+                                                        'title': f'Knowledge Base role has inline policy with wildcard actions',
+                                                        'description': (
+                                                            f'Knowledge Base "{kb_name}" uses IAM role "{role_name}" '
+                                                            f'which has an inline policy "{inline_policy_name}" with '
+                                                            f'Action:"*". This grants all actions on specified resources.'
+                                                        ),
+                                                        'location': f'Knowledge Base: {kb_name}',
+                                                        'resource': role_arn,
+                                                        'remediation': (
+                                                            f'Restrict inline policy to specific actions:\n'
+                                                            f'Replace Action:"*" with specific required actions like:\n'
+                                                            f'  s3:GetObject, s3:ListBucket, aoss:APIAccessAll, bedrock:InvokeModel'
+                                                        ),
+                                                        'details': {
+                                                            'knowledge_base_id': kb_id,
+                                                            'role_name': role_name,
+                                                            'inline_policy_name': inline_policy_name
+                                                        }
+                                                    })
+
+                                except Exception as e:
+                                    print(f"[WARN] Could not check inline policies for role {role_name}: {str(e)}")
+
                             except Exception as e:
                                 print(f"[WARN] Could not check role {role_name}: {str(e)}")
 
@@ -1340,9 +1567,8 @@ class KnowledgeBaseSecurityChecks:
         findings = []
 
         try:
-            # List all knowledge bases
-            response = self.bedrock_agent.list_knowledge_bases(maxResults=100)
-            knowledge_bases = response.get('knowledgeBaseSummaries', [])
+            # List all knowledge bases (with pagination)
+            knowledge_bases = self._get_all_knowledge_bases()
 
             if not knowledge_bases:
                 return findings
@@ -1471,9 +1697,8 @@ class KnowledgeBaseSecurityChecks:
         findings = []
 
         try:
-            # List all knowledge bases
-            response = self.bedrock_agent.list_knowledge_bases(maxResults=100)
-            knowledge_bases = response.get('knowledgeBaseSummaries', [])
+            # List all knowledge bases (with pagination)
+            knowledge_bases = self._get_all_knowledge_bases()
 
             if not knowledge_bases:
                 return findings
@@ -1666,9 +1891,8 @@ class KnowledgeBaseSecurityChecks:
         required_tags = ['Environment', 'Owner', 'DataClassification']
 
         try:
-            # List all knowledge bases
-            response = self.bedrock_agent.list_knowledge_bases(maxResults=100)
-            knowledge_bases = response.get('knowledgeBaseSummaries', [])
+            # List all knowledge bases (with pagination)
+            knowledge_bases = self._get_all_knowledge_bases()
 
             if not knowledge_bases:
                 return findings
@@ -1754,9 +1978,8 @@ class KnowledgeBaseSecurityChecks:
         findings = []
 
         try:
-            # List all knowledge bases
-            response = self.bedrock_agent.list_knowledge_bases(maxResults=100)
-            knowledge_bases = response.get('knowledgeBaseSummaries', [])
+            # List all knowledge bases (with pagination)
+            knowledge_bases = self._get_all_knowledge_bases()
 
             if not knowledge_bases:
                 return findings

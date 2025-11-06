@@ -1,6 +1,29 @@
+# ⚠️ ARCHIVED DOCUMENT
+
+This document was used for initial project planning (2025-01-03).
+See [ISSUE_STATUS.md](ISSUE_STATUS.md) for current implementation status.
+
+Preserved for historical reference and detailed security check descriptions.
+
+---
+
 # Priority 1 GitHub Issues Tracking
 
-This document tracks the Priority 1 security features to be implemented in Wilma. Use these as templates for creating GitHub issues.
+This document tracks the Priority 1 security features to be implemented in Wilma.
+
+**Project Board:** https://github.com/users/ethanolivertroy/projects/2
+**Status Tracker:** [ISSUE_STATUS.md](ISSUE_STATUS.md)
+
+## Implementation Status
+
+| Issue | Module | Status | Progress | GitHub Link |
+|-------|--------|--------|----------|-------------|
+| #2 | Knowledge Bases (RAG) | In Progress | 67% (8/12) | [View Issue](https://github.com/ethanolivertroy/wilma/issues/2) |
+| #3 | Advanced Guardrails | In Progress | 36% (4/11) | [View Issue](https://github.com/ethanolivertroy/wilma/issues/3) |
+| #4 | Bedrock Agents | TODO | 0% (0/10) | [View Issue](https://github.com/ethanolivertroy/wilma/issues/4) |
+| #5 | Model Fine-Tuning | TODO | 0% (0/11) | [View Issue](https://github.com/ethanolivertroy/wilma/issues/5) |
+
+**Total Progress:** 27% complete (12/44 security checks implemented)
 
 ---
 
