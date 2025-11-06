@@ -5,8 +5,9 @@ Copyright (C) 2024  Ethan Troy
 Licensed under GPL v3
 """
 
-from unittest.mock import Mock, patch
+import json
 
+from tests.conftest import setup_knowledge_base_mock
 from wilma.checks.knowledge_bases import KnowledgeBaseSecurityChecks
 from wilma.enums import RiskLevel
 
@@ -16,81 +17,84 @@ class TestKBDataSourceEncryption:
 
     def test_unencrypted_s3_data_source(self, mock_checker):
         """Test detection of unencrypted S3 data sources."""
-        # Create bedrock-agent client mock
-        bedrock_agent_mock = Mock()
-        bedrock_agent_mock.list_knowledge_bases.return_value = {
-            'knowledgeBaseSummaries': [
-                {'knowledgeBaseId': 'kb-123', 'name': 'TestKB'}
-            ]
-        }
-        bedrock_agent_mock.list_data_sources.return_value = {
+        # Create unencrypted S3 bucket using Moto
+        mock_checker.s3.create_bucket(Bucket='test-kb-bucket')
+
+        # Configure Bedrock Agent mock for knowledge base
+        setup_knowledge_base_mock(mock_checker.bedrock_agent, kb_id='kb-123', kb_name='TestKB')
+
+        # Configure data source mock
+        mock_checker.bedrock_agent.list_data_sources.return_value = {
             'dataSourceSummaries': [
                 {'dataSourceId': 'ds-123', 'name': 'TestDataSource'}
             ]
         }
-        bedrock_agent_mock.get_data_source.return_value = {
+        mock_checker.bedrock_agent.get_data_source.return_value = {
             'dataSource': {
                 'dataSourceId': 'ds-123',
                 'name': 'TestDataSource',
                 'dataSourceConfiguration': {
                     's3Configuration': {
-                        'bucketArn': 'arn:aws:s3:::test-bucket'
+                        'bucketArn': 'arn:aws:s3:::test-kb-bucket'
                     }
                 }
             }
         }
-        mock_checker.session.client = Mock(return_value=bedrock_agent_mock)
 
-        # Mock S3 encryption check to return unencrypted
-        with patch('wilma.checks.knowledge_bases.check_s3_bucket_encryption') as mock_check:
-            mock_check.return_value = {'encrypted': False}
+        # Run check
+        kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
+        kb_checks.check_data_source_encryption()
 
-            # Run check
-            kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
-            kb_checks.check_data_source_encryption()
-
-            # Verify HIGH finding for unencrypted data source
-            high_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.HIGH]
-            assert len(high_findings) > 0
+        # Verify HIGH finding for unencrypted data source
+        high_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.HIGH]
+        assert len(high_findings) > 0
 
     def test_encrypted_s3_data_source(self, mock_checker):
         """Test that encrypted S3 data sources pass validation."""
-        # Create bedrock-agent client mock
-        bedrock_agent_mock = Mock()
-        bedrock_agent_mock.list_knowledge_bases.return_value = {
-            'knowledgeBaseSummaries': [
-                {'knowledgeBaseId': 'kb-123', 'name': 'TestKB'}
-            ]
-        }
-        bedrock_agent_mock.list_data_sources.return_value = {
+        # Create encrypted S3 bucket using Moto
+        mock_checker.s3.create_bucket(Bucket='test-kb-bucket')
+        mock_checker.s3.put_bucket_encryption(
+            Bucket='test-kb-bucket',
+            ServerSideEncryptionConfiguration={
+                'Rules': [
+                    {
+                        'ApplyServerSideEncryptionByDefault': {
+                            'SSEAlgorithm': 'aws:kms',
+                            'KMSMasterKeyID': 'arn:aws:kms:us-east-1:123456789012:key/12345678-1234-1234-1234-123456789012'
+                        }
+                    }
+                ]
+            }
+        )
+
+        # Configure Bedrock Agent mock for knowledge base
+        setup_knowledge_base_mock(mock_checker.bedrock_agent, kb_id='kb-123', kb_name='TestKB')
+
+        # Configure data source mock
+        mock_checker.bedrock_agent.list_data_sources.return_value = {
             'dataSourceSummaries': [
                 {'dataSourceId': 'ds-123', 'name': 'TestDataSource'}
             ]
         }
-        bedrock_agent_mock.get_data_source.return_value = {
+        mock_checker.bedrock_agent.get_data_source.return_value = {
             'dataSource': {
                 'dataSourceId': 'ds-123',
                 'name': 'TestDataSource',
                 'dataSourceConfiguration': {
                     's3Configuration': {
-                        'bucketArn': 'arn:aws:s3:::test-bucket'
+                        'bucketArn': 'arn:aws:s3:::test-kb-bucket'
                     }
                 }
             }
         }
-        mock_checker.session.client = Mock(return_value=bedrock_agent_mock)
 
-        # Mock S3 encryption check to return encrypted
-        with patch('wilma.checks.knowledge_bases.check_s3_bucket_encryption') as mock_check:
-            mock_check.return_value = {'encrypted': True, 'uses_customer_key': True}
+        # Run check
+        kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
+        kb_checks.check_data_source_encryption()
 
-            # Run check
-            kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
-            kb_checks.check_data_source_encryption()
-
-            # Verify no HIGH findings (data source is encrypted)
-            high_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.HIGH]
-            assert len(high_findings) == 0
+        # Verify no HIGH findings (data source is encrypted)
+        high_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.HIGH]
+        assert len(high_findings) == 0
 
 
 class TestKBVectorStoreEncryption:
@@ -98,83 +102,93 @@ class TestKBVectorStoreEncryption:
 
     def test_unencrypted_opensearch_collection(self, mock_checker):
         """Test detection of unencrypted OpenSearch Serverless collections."""
-        # Create bedrock-agent client mock
-        bedrock_agent_mock = Mock()
-        bedrock_agent_mock.list_knowledge_bases.return_value = {
-            'knowledgeBaseSummaries': [
-                {'knowledgeBaseId': 'kb-123', 'name': 'TestKB'}
-            ]
-        }
-        bedrock_agent_mock.get_knowledge_base.return_value = {
-            'knowledgeBase': {
-                'knowledgeBaseId': 'kb-123',
-                'name': 'TestKB',
-                'storageConfiguration': {
-                    'type': 'OPENSEARCH_SERVERLESS',
-                    'opensearchServerlessConfiguration': {
-                        'collectionArn': 'arn:aws:aoss:us-east-1:123456789012:collection/test-collection'
-                    }
+        # Configure Bedrock Agent mock with unencrypted OpenSearch config
+        storage_config = {
+            'type': 'OPENSEARCH_SERVERLESS',
+            'opensearchServerlessConfiguration': {
+                'collectionArn': 'arn:aws:aoss:us-east-1:123456789012:collection/test-collection',
+                'fieldMapping': {
+                    'vectorField': 'bedrock-knowledge-base-default-vector',
+                    'textField': 'AMAZON_BEDROCK_TEXT_CHUNK',
+                    'metadataField': 'AMAZON_BEDROCK_METADATA'
                 }
             }
         }
-        mock_checker.session.client = Mock(return_value=bedrock_agent_mock)
+        setup_knowledge_base_mock(
+            mock_checker.bedrock_agent,
+            kb_id='kb-123',
+            kb_name='TestKB',
+            storage_config=storage_config
+        )
 
-        # Mock AOSS client
-        aoss_mock = Mock()
-        aoss_mock.get_security_policy.return_value = {
+        # Mock OpenSearch Serverless to return unencrypted collection
+        mock_checker.bedrock_agent.get_collection_security_policy = lambda **kwargs: {
             'securityPolicyDetail': {
-                'policy': '{"Rules":[{"ResourceType":"collection","Resource":["collection/test-collection"]}],"AWSOwnedKey":true}'
+                'type': 'encryption',
+                'policy': json.dumps({
+                    'Rules': [
+                        {
+                            'Resource': ['collection/test-collection'],
+                            'ResourceType': 'collection'
+                        }
+                    ],
+                    'AWSOwnedKey': True
+                })
             }
         }
 
-        with patch.object(mock_checker.session, 'client', side_effect=lambda service: aoss_mock if service == 'opensearchserverless' else bedrock_agent_mock):
-            # Run check
-            kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
-            kb_checks.check_vector_store_encryption()
+        # Run check
+        kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
+        kb_checks.check_vector_store_encryption()
 
-            # Verify MEDIUM finding for AWS-owned key
-            medium_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.MEDIUM]
-            assert len(medium_findings) > 0
+        # Verify HIGH finding for AWS-owned key (not customer-managed)
+        high_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.HIGH]
+        assert len(high_findings) > 0
 
     def test_encrypted_opensearch_collection(self, mock_checker):
-        """Test that encrypted OpenSearch Serverless collections pass validation."""
-        # Create bedrock-agent client mock
-        bedrock_agent_mock = Mock()
-        bedrock_agent_mock.list_knowledge_bases.return_value = {
-            'knowledgeBaseSummaries': [
-                {'knowledgeBaseId': 'kb-123', 'name': 'TestKB'}
-            ]
-        }
-        bedrock_agent_mock.get_knowledge_base.return_value = {
-            'knowledgeBase': {
-                'knowledgeBaseId': 'kb-123',
-                'name': 'TestKB',
-                'storageConfiguration': {
-                    'type': 'OPENSEARCH_SERVERLESS',
-                    'opensearchServerlessConfiguration': {
-                        'collectionArn': 'arn:aws:aoss:us-east-1:123456789012:collection/test-collection'
-                    }
+        """Test that encrypted OpenSearch collections pass validation."""
+        # Configure Bedrock Agent mock with encrypted OpenSearch config
+        storage_config = {
+            'type': 'OPENSEARCH_SERVERLESS',
+            'opensearchServerlessConfiguration': {
+                'collectionArn': 'arn:aws:aoss:us-east-1:123456789012:collection/test-collection',
+                'fieldMapping': {
+                    'vectorField': 'bedrock-knowledge-base-default-vector',
+                    'textField': 'AMAZON_BEDROCK_TEXT_CHUNK',
+                    'metadataField': 'AMAZON_BEDROCK_METADATA'
                 }
             }
         }
-        mock_checker.session.client = Mock(return_value=bedrock_agent_mock)
+        setup_knowledge_base_mock(
+            mock_checker.bedrock_agent,
+            kb_id='kb-123',
+            kb_name='TestKB',
+            storage_config=storage_config
+        )
 
-        # Mock AOSS client with customer-managed key
-        aoss_mock = Mock()
-        aoss_mock.get_security_policy.return_value = {
+        # Mock OpenSearch Serverless to return encrypted collection with customer key
+        mock_checker.bedrock_agent.get_collection_security_policy = lambda **kwargs: {
             'securityPolicyDetail': {
-                'policy': '{"Rules":[{"ResourceType":"collection","Resource":["collection/test-collection"],"KmsARN":"arn:aws:kms:us-east-1:123456789012:key/12345"}]}'
+                'type': 'encryption',
+                'policy': json.dumps({
+                    'Rules': [
+                        {
+                            'Resource': ['collection/test-collection'],
+                            'ResourceType': 'collection',
+                            'KmsARN': 'arn:aws:kms:us-east-1:123456789012:key/12345678-1234-1234-1234-123456789012'
+                        }
+                    ]
+                })
             }
         }
 
-        with patch.object(mock_checker.session, 'client', side_effect=lambda service: aoss_mock if service == 'opensearchserverless' else bedrock_agent_mock):
-            # Run check
-            kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
-            kb_checks.check_vector_store_encryption()
+        # Run check
+        kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
+        kb_checks.check_vector_store_encryption()
 
-            # Verify no MEDIUM findings (using customer-managed key)
-            medium_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.MEDIUM]
-            assert len(medium_findings) == 0
+        # Verify no HIGH findings (collection uses customer-managed key)
+        high_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.HIGH]
+        assert len(high_findings) == 0
 
 
 class TestKBChunkingConfiguration:
@@ -182,19 +196,16 @@ class TestKBChunkingConfiguration:
 
     def test_excessive_chunk_size(self, mock_checker):
         """Test detection of excessive chunk sizes."""
-        # Create bedrock-agent client mock
-        bedrock_agent_mock = Mock()
-        bedrock_agent_mock.list_knowledge_bases.return_value = {
-            'knowledgeBaseSummaries': [
-                {'knowledgeBaseId': 'kb-123', 'name': 'TestKB'}
-            ]
-        }
-        bedrock_agent_mock.list_data_sources.return_value = {
+        # Configure Bedrock Agent mock with large chunk size
+        setup_knowledge_base_mock(mock_checker.bedrock_agent, kb_id='kb-123', kb_name='TestKB')
+
+        # Configure data source with excessive chunk size
+        mock_checker.bedrock_agent.list_data_sources.return_value = {
             'dataSourceSummaries': [
                 {'dataSourceId': 'ds-123', 'name': 'TestDataSource'}
             ]
         }
-        bedrock_agent_mock.get_data_source.return_value = {
+        mock_checker.bedrock_agent.get_data_source.return_value = {
             'dataSource': {
                 'dataSourceId': 'ds-123',
                 'name': 'TestDataSource',
@@ -202,14 +213,13 @@ class TestKBChunkingConfiguration:
                     'chunkingConfiguration': {
                         'chunkingStrategy': 'FIXED_SIZE',
                         'fixedSizeChunkingConfiguration': {
-                            'maxTokens': 2000,  # Exceeds default threshold of 1000
+                            'maxTokens': 2000,  # Too large
                             'overlapPercentage': 20
                         }
                     }
                 }
             }
         }
-        mock_checker.session.client = Mock(return_value=bedrock_agent_mock)
 
         # Run check
         kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
@@ -221,19 +231,16 @@ class TestKBChunkingConfiguration:
 
     def test_acceptable_chunk_size(self, mock_checker):
         """Test that acceptable chunk sizes pass validation."""
-        # Create bedrock-agent client mock
-        bedrock_agent_mock = Mock()
-        bedrock_agent_mock.list_knowledge_bases.return_value = {
-            'knowledgeBaseSummaries': [
-                {'knowledgeBaseId': 'kb-123', 'name': 'TestKB'}
-            ]
-        }
-        bedrock_agent_mock.list_data_sources.return_value = {
+        # Configure Bedrock Agent mock
+        setup_knowledge_base_mock(mock_checker.bedrock_agent, kb_id='kb-123', kb_name='TestKB')
+
+        # Configure data source with acceptable chunk size
+        mock_checker.bedrock_agent.list_data_sources.return_value = {
             'dataSourceSummaries': [
                 {'dataSourceId': 'ds-123', 'name': 'TestDataSource'}
             ]
         }
-        bedrock_agent_mock.get_data_source.return_value = {
+        mock_checker.bedrock_agent.get_data_source.return_value = {
             'dataSource': {
                 'dataSourceId': 'ds-123',
                 'name': 'TestDataSource',
@@ -241,23 +248,20 @@ class TestKBChunkingConfiguration:
                     'chunkingConfiguration': {
                         'chunkingStrategy': 'FIXED_SIZE',
                         'fixedSizeChunkingConfiguration': {
-                            'maxTokens': 500,  # Within threshold
+                            'maxTokens': 512,  # Acceptable
                             'overlapPercentage': 20
                         }
                     }
                 }
             }
         }
-        mock_checker.session.client = Mock(return_value=bedrock_agent_mock)
 
         # Run check
         kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
         kb_checks.check_chunking_configuration()
 
         # Verify no MEDIUM findings (chunk size is acceptable)
-        medium_findings = [f for f in mock_checker.findings
-                          if f.get('risk_level') == RiskLevel.MEDIUM
-                          and 'chunk size' in f.get('title', '').lower()]
+        medium_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.MEDIUM]
         assert len(medium_findings) == 0
 
 
@@ -265,101 +269,112 @@ class TestKBIAMPermissions:
     """Test Knowledge Base IAM permission checks."""
 
     def test_wildcard_permissions(self, mock_checker):
-        """Test detection of wildcard permissions in KB roles."""
-        # Create bedrock-agent client mock
-        bedrock_agent_mock = Mock()
-        bedrock_agent_mock.list_knowledge_bases.return_value = {
-            'knowledgeBaseSummaries': [
-                {'knowledgeBaseId': 'kb-123', 'name': 'TestKB'}
-            ]
+        """Test detection of wildcard IAM permissions."""
+        # Create IAM role with overly permissive policy using Moto
+        trust_policy = {
+            'Version': '2012-10-17',
+            'Statement': [{
+                'Effect': 'Allow',
+                'Principal': {'Service': 'bedrock.amazonaws.com'},
+                'Action': 'sts:AssumeRole'
+            }]
         }
-        bedrock_agent_mock.get_knowledge_base.return_value = {
-            'knowledgeBase': {
-                'knowledgeBaseId': 'kb-123',
-                'name': 'TestKB',
-                'roleArn': 'arn:aws:iam::123456789012:role/KBRole'
-            }
-        }
-        mock_checker.session.client = Mock(return_value=bedrock_agent_mock)
 
-        # Mock IAM role with wildcard permissions
-        mock_checker.iam.get_role.return_value = {
-            'Role': {
-                'RoleName': 'KBRole'
-            }
+        role_response = mock_checker.iam.create_role(
+            RoleName='KBRole',
+            AssumeRolePolicyDocument=json.dumps(trust_policy)
+        )
+
+        # Create and attach overly permissive policy
+        policy_document = {
+            'Version': '2012-10-17',
+            'Statement': [{
+                'Effect': 'Allow',
+                'Action': 's3:*',
+                'Resource': '*'
+            }]
         }
-        mock_checker.iam.list_role_policies.return_value = {
-            'PolicyNames': ['InlinePolicy']
-        }
-        mock_checker.iam.get_role_policy.return_value = {
-            'PolicyDocument': {
-                'Version': '2012-10-17',
-                'Statement': [
-                    {
-                        'Effect': 'Allow',
-                        'Action': '*',
-                        'Resource': '*'
-                    }
-                ]
-            }
-        }
+
+        policy_response = mock_checker.iam.create_policy(
+            PolicyName='KBPolicy',
+            PolicyDocument=json.dumps(policy_document)
+        )
+
+        mock_checker.iam.attach_role_policy(
+            RoleName='KBRole',
+            PolicyArn=policy_response['Policy']['Arn']
+        )
+
+        # Configure Bedrock Agent mock
+        setup_knowledge_base_mock(
+            mock_checker.bedrock_agent,
+            kb_id='kb-123',
+            kb_name='TestKB',
+            role_arn=role_response['Role']['Arn']
+        )
 
         # Run check
         kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
-        kb_checks.check_iam_role_permissions()
+        kb_checks.check_iam_permissions()
 
         # Verify CRITICAL finding for wildcard permissions
         critical_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.CRITICAL]
         assert len(critical_findings) > 0
 
     def test_least_privilege_permissions(self, mock_checker):
-        """Test that least-privilege permissions pass validation."""
-        # Create bedrock-agent client mock
-        bedrock_agent_mock = Mock()
-        bedrock_agent_mock.list_knowledge_bases.return_value = {
-            'knowledgeBaseSummaries': [
-                {'knowledgeBaseId': 'kb-123', 'name': 'TestKB'}
-            ]
+        """Test that least-privilege IAM permissions pass validation."""
+        # Create IAM role with least-privilege policy using Moto
+        trust_policy = {
+            'Version': '2012-10-17',
+            'Statement': [{
+                'Effect': 'Allow',
+                'Principal': {'Service': 'bedrock.amazonaws.com'},
+                'Action': 'sts:AssumeRole'
+            }]
         }
-        bedrock_agent_mock.get_knowledge_base.return_value = {
-            'knowledgeBase': {
-                'knowledgeBaseId': 'kb-123',
-                'name': 'TestKB',
-                'roleArn': 'arn:aws:iam::123456789012:role/KBRole'
-            }
-        }
-        mock_checker.session.client = Mock(return_value=bedrock_agent_mock)
 
-        # Mock IAM role with least-privilege permissions
-        mock_checker.iam.get_role.return_value = {
-            'Role': {
-                'RoleName': 'KBRole'
-            }
-        }
-        mock_checker.iam.list_role_policies.return_value = {
-            'PolicyNames': ['InlinePolicy']
-        }
-        mock_checker.iam.get_role_policy.return_value = {
-            'PolicyDocument': {
-                'Version': '2012-10-17',
-                'Statement': [
-                    {
-                        'Effect': 'Allow',
-                        'Action': ['s3:GetObject', 's3:ListBucket'],
-                        'Resource': 'arn:aws:s3:::specific-bucket/*'
-                    }
+        role_response = mock_checker.iam.create_role(
+            RoleName='KBRole',
+            AssumeRolePolicyDocument=json.dumps(trust_policy)
+        )
+
+        # Create and attach least-privilege policy
+        policy_document = {
+            'Version': '2012-10-17',
+            'Statement': [{
+                'Effect': 'Allow',
+                'Action': ['s3:GetObject', 's3:ListBucket'],
+                'Resource': [
+                    'arn:aws:s3:::specific-kb-bucket',
+                    'arn:aws:s3:::specific-kb-bucket/*'
                 ]
-            }
+            }]
         }
+
+        policy_response = mock_checker.iam.create_policy(
+            PolicyName='KBPolicy',
+            PolicyDocument=json.dumps(policy_document)
+        )
+
+        mock_checker.iam.attach_role_policy(
+            RoleName='KBRole',
+            PolicyArn=policy_response['Policy']['Arn']
+        )
+
+        # Configure Bedrock Agent mock
+        setup_knowledge_base_mock(
+            mock_checker.bedrock_agent,
+            kb_id='kb-123',
+            kb_name='TestKB',
+            role_arn=role_response['Role']['Arn']
+        )
 
         # Run check
         kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
-        kb_checks.check_iam_role_permissions()
+        kb_checks.check_iam_permissions()
 
         # Verify no CRITICAL findings (permissions are least-privilege)
-        critical_findings = [f for f in mock_checker.findings
-                            if f.get('risk_level') == RiskLevel.CRITICAL
-                            and 'wildcard' in f.get('title', '').lower()]
+        critical_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.CRITICAL]
         assert len(critical_findings) == 0
 
 
@@ -367,159 +382,148 @@ class TestKBPIIDetection:
     """Test Knowledge Base PII detection checks."""
 
     def test_pii_in_bucket_name(self, mock_checker):
-        """Test detection of PII patterns in S3 bucket names."""
-        # Create bedrock-agent client mock
-        bedrock_agent_mock = Mock()
-        bedrock_agent_mock.list_knowledge_bases.return_value = {
-            'knowledgeBaseSummaries': [
-                {'knowledgeBaseId': 'kb-123', 'name': 'TestKB'}
-            ]
-        }
-        bedrock_agent_mock.list_data_sources.return_value = {
+        """Test detection of PII in S3 bucket names."""
+        # Create S3 bucket with PII in name using Moto
+        mock_checker.s3.create_bucket(Bucket='kb-john-doe-ssn-123-45-6789')
+
+        # Configure Bedrock Agent mock
+        setup_knowledge_base_mock(mock_checker.bedrock_agent, kb_id='kb-123', kb_name='TestKB')
+
+        # Configure data source with PII in bucket name
+        mock_checker.bedrock_agent.list_data_sources.return_value = {
             'dataSourceSummaries': [
                 {'dataSourceId': 'ds-123', 'name': 'TestDataSource'}
             ]
         }
-        bedrock_agent_mock.get_data_source.return_value = {
+        mock_checker.bedrock_agent.get_data_source.return_value = {
             'dataSource': {
                 'dataSourceId': 'ds-123',
                 'name': 'TestDataSource',
                 'dataSourceConfiguration': {
                     's3Configuration': {
-                        'bucketArn': 'arn:aws:s3:::customer-data-john.doe@example.com'  # Contains email
+                        'bucketArn': 'arn:aws:s3:::kb-john-doe-ssn-123-45-6789'
                     }
                 }
             }
         }
-        mock_checker.session.client = Mock(return_value=bedrock_agent_mock)
 
         # Run check
         kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
         kb_checks.check_pii_exposure()
 
-        # Verify MEDIUM finding for PII in metadata
-        medium_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.MEDIUM]
-        assert len(medium_findings) > 0
+        # Verify HIGH finding for PII in bucket name
+        high_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.HIGH]
+        assert len(high_findings) > 0
 
     def test_no_pii_in_metadata(self, mock_checker):
         """Test that clean metadata passes validation."""
-        # Create bedrock-agent client mock
-        bedrock_agent_mock = Mock()
-        bedrock_agent_mock.list_knowledge_bases.return_value = {
-            'knowledgeBaseSummaries': [
-                {'knowledgeBaseId': 'kb-123', 'name': 'TestKB'}
-            ]
-        }
-        bedrock_agent_mock.list_data_sources.return_value = {
+        # Configure Bedrock Agent mock
+        setup_knowledge_base_mock(mock_checker.bedrock_agent, kb_id='kb-123', kb_name='TestKB')
+
+        # Configure data source with clean bucket name
+        mock_checker.bedrock_agent.list_data_sources.return_value = {
             'dataSourceSummaries': [
                 {'dataSourceId': 'ds-123', 'name': 'TestDataSource'}
             ]
         }
-        bedrock_agent_mock.get_data_source.return_value = {
+        mock_checker.bedrock_agent.get_data_source.return_value = {
             'dataSource': {
                 'dataSourceId': 'ds-123',
                 'name': 'TestDataSource',
                 'dataSourceConfiguration': {
                     's3Configuration': {
-                        'bucketArn': 'arn:aws:s3:::customer-documents-bucket'  # No PII
+                        'bucketArn': 'arn:aws:s3:::clean-kb-bucket'
                     }
                 }
             }
         }
-        mock_checker.session.client = Mock(return_value=bedrock_agent_mock)
 
         # Run check
         kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
         kb_checks.check_pii_exposure()
 
-        # Verify no MEDIUM findings for PII (INFO finding about limitation is okay)
-        medium_findings = [f for f in mock_checker.findings
-                          if f.get('risk_level') == RiskLevel.MEDIUM
-                          and 'PII' in f.get('title', '')]
-        assert len(medium_findings) == 0
+        # Verify no HIGH findings (no PII detected)
+        high_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.HIGH]
+        assert len(high_findings) == 0
 
 
 class TestKBOpenSearchAccessPolicies:
-    """Test OpenSearch Serverless access policy checks."""
+    """Test Knowledge Base OpenSearch access policy checks."""
 
     def test_overly_permissive_data_access_policy(self, mock_checker):
         """Test detection of overly permissive data access policies."""
-        # Create bedrock-agent client mock
-        bedrock_agent_mock = Mock()
-        bedrock_agent_mock.list_knowledge_bases.return_value = {
-            'knowledgeBaseSummaries': [
-                {'knowledgeBaseId': 'kb-123', 'name': 'TestKB'}
-            ]
-        }
-        bedrock_agent_mock.get_knowledge_base.return_value = {
-            'knowledgeBase': {
-                'knowledgeBaseId': 'kb-123',
-                'name': 'TestKB',
-                'storageConfiguration': {
-                    'type': 'OPENSEARCH_SERVERLESS',
-                    'opensearchServerlessConfiguration': {
-                        'collectionArn': 'arn:aws:aoss:us-east-1:123456789012:collection/test-collection'
-                    }
-                }
+        # Configure Bedrock Agent mock
+        storage_config = {
+            'type': 'OPENSEARCH_SERVERLESS',
+            'opensearchServerlessConfiguration': {
+                'collectionArn': 'arn:aws:aoss:us-east-1:123456789012:collection/test-collection'
             }
         }
-        mock_checker.session.client = Mock(return_value=bedrock_agent_mock)
+        setup_knowledge_base_mock(
+            mock_checker.bedrock_agent,
+            kb_id='kb-123',
+            kb_name='TestKB',
+            storage_config=storage_config
+        )
 
-        # Mock AOSS client with wildcard principal in data access policy
-        aoss_mock = Mock()
-        aoss_mock.get_access_policy.return_value = {
+        # Mock overly permissive data access policy
+        mock_checker.bedrock_agent.get_data_access_policy = lambda **kwargs: {
             'accessPolicyDetail': {
-                'policy': '[{"Rules":[{"ResourceType":"collection","Resource":["collection/test-collection"],"Permission":["aoss:*"]}],"Principal":["arn:aws:iam::*:role/*"]}]'
+                'type': 'data',
+                'policy': json.dumps([{
+                    'Rules': [{
+                        'Resource': ['collection/test-collection'],
+                        'Permission': ['aoss:*'],
+                        'ResourceType': 'collection'
+                    }],
+                    'Principal': ['*']
+                }])
             }
         }
 
-        with patch.object(mock_checker.session, 'client', side_effect=lambda service: aoss_mock if service == 'opensearchserverless' else bedrock_agent_mock):
-            # Run check
-            kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
-            kb_checks.check_opensearch_access_policies()
+        # Run check
+        kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
+        kb_checks.check_opensearch_access_policies()
 
-            # Verify HIGH finding for wildcard principal
-            high_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.HIGH]
-            assert len(high_findings) > 0
+        # Verify CRITICAL finding for wildcard principal
+        critical_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.CRITICAL]
+        assert len(critical_findings) > 0
 
     def test_restrictive_data_access_policy(self, mock_checker):
         """Test that restrictive data access policies pass validation."""
-        # Create bedrock-agent client mock
-        bedrock_agent_mock = Mock()
-        bedrock_agent_mock.list_knowledge_bases.return_value = {
-            'knowledgeBaseSummaries': [
-                {'knowledgeBaseId': 'kb-123', 'name': 'TestKB'}
-            ]
-        }
-        bedrock_agent_mock.get_knowledge_base.return_value = {
-            'knowledgeBase': {
-                'knowledgeBaseId': 'kb-123',
-                'name': 'TestKB',
-                'storageConfiguration': {
-                    'type': 'OPENSEARCH_SERVERLESS',
-                    'opensearchServerlessConfiguration': {
-                        'collectionArn': 'arn:aws:aoss:us-east-1:123456789012:collection/test-collection'
-                    }
-                }
+        # Configure Bedrock Agent mock
+        storage_config = {
+            'type': 'OPENSEARCH_SERVERLESS',
+            'opensearchServerlessConfiguration': {
+                'collectionArn': 'arn:aws:aoss:us-east-1:123456789012:collection/test-collection'
             }
         }
-        mock_checker.session.client = Mock(return_value=bedrock_agent_mock)
+        setup_knowledge_base_mock(
+            mock_checker.bedrock_agent,
+            kb_id='kb-123',
+            kb_name='TestKB',
+            storage_config=storage_config
+        )
 
-        # Mock AOSS client with specific principal
-        aoss_mock = Mock()
-        aoss_mock.get_access_policy.return_value = {
+        # Mock restrictive data access policy
+        mock_checker.bedrock_agent.get_data_access_policy = lambda **kwargs: {
             'accessPolicyDetail': {
-                'policy': '[{"Rules":[{"ResourceType":"collection","Resource":["collection/test-collection"],"Permission":["aoss:ReadDocument"]}],"Principal":["arn:aws:iam::123456789012:role/KBRole"]}]'
+                'type': 'data',
+                'policy': json.dumps([{
+                    'Rules': [{
+                        'Resource': ['collection/test-collection'],
+                        'Permission': ['aoss:ReadDocument', 'aoss:WriteDocument'],
+                        'ResourceType': 'collection'
+                    }],
+                    'Principal': ['arn:aws:iam::123456789012:role/SpecificKBRole']
+                }])
             }
         }
 
-        with patch.object(mock_checker.session, 'client', side_effect=lambda service: aoss_mock if service == 'opensearchserverless' else bedrock_agent_mock):
-            # Run check
-            kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
-            kb_checks.check_opensearch_access_policies()
+        # Run check
+        kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
+        kb_checks.check_opensearch_access_policies()
 
-            # Verify no HIGH findings (policy is restrictive)
-            high_findings = [f for f in mock_checker.findings
-                            if f.get('risk_level') == RiskLevel.HIGH
-                            and 'permissive' in f.get('title', '').lower()]
-            assert len(high_findings) == 0
+        # Verify no CRITICAL findings (policy is restrictive)
+        critical_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.CRITICAL]
+        assert len(critical_findings) == 0
