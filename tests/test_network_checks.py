@@ -5,8 +5,6 @@ Copyright (C) 2024  Ethan Troy
 Licensed under GPL v3
 """
 
-import pytest
-from unittest.mock import Mock
 from wilma.checks.network import NetworkSecurityChecks
 from wilma.enums import RiskLevel
 
@@ -23,7 +21,7 @@ class TestVPCEndpoints:
 
         # Run check
         network_checks = NetworkSecurityChecks(mock_checker)
-        findings = network_checks.check_vpc_endpoints()
+        network_checks.check_vpc_endpoints()
 
         # Verify MEDIUM finding for missing endpoints
         medium_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.MEDIUM]
@@ -51,7 +49,7 @@ class TestVPCEndpoints:
 
         # Run check
         network_checks = NetworkSecurityChecks(mock_checker)
-        findings = network_checks.check_vpc_endpoints()
+        network_checks.check_vpc_endpoints()
 
         # Verify no MEDIUM findings (both endpoints configured)
         medium_findings = [f for f in mock_checker.findings
@@ -75,7 +73,7 @@ class TestVPCEndpoints:
 
         # Run check
         network_checks = NetworkSecurityChecks(mock_checker)
-        findings = network_checks.check_vpc_endpoints()
+        network_checks.check_vpc_endpoints()
 
         # Verify MEDIUM finding for missing bedrock-agent endpoint
         medium_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.MEDIUM]
@@ -98,7 +96,7 @@ class TestVPCEndpoints:
 
         # Run check
         network_checks = NetworkSecurityChecks(mock_checker)
-        findings = network_checks.check_vpc_endpoints()
+        network_checks.check_vpc_endpoints()
 
         # Verify LOW finding for disabled private DNS
         low_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.LOW]
@@ -164,7 +162,7 @@ class TestSecurityGroups:
 
         # Run check
         network_checks = NetworkSecurityChecks(mock_checker)
-        findings = network_checks.check_security_groups()
+        network_checks.check_security_groups()
 
         # Verify MEDIUM finding for overly permissive rules
         medium_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.MEDIUM]
@@ -210,7 +208,7 @@ class TestSecurityGroups:
 
         # Run check
         network_checks = NetworkSecurityChecks(mock_checker)
-        findings = network_checks.check_security_groups()
+        network_checks.check_security_groups()
 
         # Verify no MEDIUM findings (restrictive rules are good)
         medium_findings = [f for f in mock_checker.findings

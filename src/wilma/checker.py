@@ -11,21 +11,22 @@ Copyright (C) 2024  Ethan Troy
 Licensed under GPL v3
 """
 
-import boto3
 import sys
 from datetime import datetime
-from typing import Dict, List, Any, Optional
+from typing import Dict, List
 
-from wilma.enums import SecurityMode, RiskLevel
-from wilma.config import WilmaConfig
+import boto3
+
 from wilma.checks import (
     GenAISecurityChecks,
     IAMSecurityChecks,
+    KnowledgeBaseSecurityChecks,
     LoggingSecurityChecks,
     NetworkSecurityChecks,
     TaggingSecurityChecks,
-    KnowledgeBaseSecurityChecks,
 )
+from wilma.config import WilmaConfig
+from wilma.enums import RiskLevel, SecurityMode
 
 
 class BedrockSecurityChecker:

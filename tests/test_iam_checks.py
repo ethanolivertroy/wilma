@@ -5,8 +5,6 @@ Copyright (C) 2024  Ethan Troy
 Licensed under GPL v3
 """
 
-import pytest
-from unittest.mock import Mock, patch
 from wilma.checks.iam import IAMSecurityChecks
 from wilma.enums import RiskLevel
 
@@ -43,7 +41,7 @@ class TestOverlyPermissivePolicies:
 
         # Run check
         iam_checks = IAMSecurityChecks(mock_checker)
-        findings = iam_checks.check_overly_permissive_policies()
+        iam_checks.check_overly_permissive_policies()
 
         # Verify CRITICAL finding was created
         critical_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.CRITICAL]
@@ -78,7 +76,7 @@ class TestOverlyPermissivePolicies:
 
         # Run check
         iam_checks = IAMSecurityChecks(mock_checker)
-        findings = iam_checks.check_overly_permissive_policies()
+        iam_checks.check_overly_permissive_policies()
 
         # Verify no CRITICAL findings (good practice recorded instead)
         critical_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.CRITICAL]
@@ -110,7 +108,7 @@ class TestAWSManagedPolicies:
 
         # Run check
         iam_checks = IAMSecurityChecks(mock_checker)
-        findings = iam_checks.check_overly_permissive_policies()
+        iam_checks.check_overly_permissive_policies()
 
         # Verify CRITICAL finding for AdministratorAccess
         critical_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.CRITICAL]
@@ -139,7 +137,7 @@ class TestAWSManagedPolicies:
 
         # Run check
         iam_checks = IAMSecurityChecks(mock_checker)
-        findings = iam_checks.check_overly_permissive_policies()
+        iam_checks.check_overly_permissive_policies()
 
         # Verify HIGH risk finding for PowerUserAccess
         high_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.HIGH]
@@ -175,7 +173,7 @@ class TestCrossAccountAccess:
 
         # Run check
         iam_checks = IAMSecurityChecks(mock_checker)
-        findings = iam_checks.check_cross_account_access()
+        iam_checks.check_cross_account_access()
 
         # Verify finding was created for external account
         medium_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.MEDIUM]
@@ -207,7 +205,7 @@ class TestCrossAccountAccess:
 
         # Run check
         iam_checks = IAMSecurityChecks(mock_checker)
-        findings = iam_checks.check_cross_account_access()
+        iam_checks.check_cross_account_access()
 
         # Verify no MEDIUM findings (service principal is okay)
         medium_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.MEDIUM]
@@ -232,7 +230,7 @@ class TestRoleSessionDuration:
 
         # Run check
         iam_checks = IAMSecurityChecks(mock_checker)
-        findings = iam_checks.check_role_session_duration()
+        iam_checks.check_role_session_duration()
 
         # Verify MEDIUM finding for excessive duration
         medium_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.MEDIUM]
@@ -253,7 +251,7 @@ class TestRoleSessionDuration:
 
         # Run check
         iam_checks = IAMSecurityChecks(mock_checker)
-        findings = iam_checks.check_role_session_duration()
+        iam_checks.check_role_session_duration()
 
         # Verify no MEDIUM findings (1 hour is acceptable)
         medium_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.MEDIUM]

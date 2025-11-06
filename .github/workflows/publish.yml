@@ -140,6 +140,29 @@ jobs:
         git push origin "v$VERSION"
         echo "🏷️ Created and pushed tag v$VERSION"
 
+    - name: Create GitHub Release
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        VERSION="${{ needs.check-version.outputs.version }}"
+
+        # Extract release notes from CHANGELOG.md for this version
+        awk '/## \['"$VERSION"'\]/,/^## \[/ {
+          if (/## \['"$VERSION"'\]/) { found=1; next }
+          if (/^## \[/ && found) exit
+          if (found) print
+        }' CHANGELOG.md > release_notes.md
+
+        # Create GitHub release
+        gh release create "v$VERSION" \
+          --title "Wilma v$VERSION" \
+          --notes-file release_notes.md \
+          --verify-tag
+
+        echo "🎉 GitHub Release created!"
+        echo "📦 PyPI: https://pypi.org/project/wilma-sec/$VERSION/"
+        echo "🏷️ Release: https://github.com/${{ github.repository }}/releases/tag/v$VERSION"
+
   publish-summary:
     name: Publish Summary
     runs-on: ubuntu-latest

@@ -5,8 +5,8 @@ Copyright (C) 2024  Ethan Troy
 Licensed under GPL v3
 """
 
-import pytest
 from unittest.mock import Mock, patch
+
 from wilma.checks.knowledge_bases import KnowledgeBaseSecurityChecks
 from wilma.enums import RiskLevel
 
@@ -47,7 +47,7 @@ class TestKBDataSourceEncryption:
 
             # Run check
             kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
-            findings = kb_checks.check_data_source_encryption()
+            kb_checks.check_data_source_encryption()
 
             # Verify HIGH finding for unencrypted data source
             high_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.HIGH]
@@ -86,7 +86,7 @@ class TestKBDataSourceEncryption:
 
             # Run check
             kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
-            findings = kb_checks.check_data_source_encryption()
+            kb_checks.check_data_source_encryption()
 
             # Verify no HIGH findings (data source is encrypted)
             high_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.HIGH]
@@ -130,7 +130,7 @@ class TestKBVectorStoreEncryption:
         with patch.object(mock_checker.session, 'client', side_effect=lambda service: aoss_mock if service == 'opensearchserverless' else bedrock_agent_mock):
             # Run check
             kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
-            findings = kb_checks.check_vector_store_encryption()
+            kb_checks.check_vector_store_encryption()
 
             # Verify MEDIUM finding for AWS-owned key
             medium_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.MEDIUM]
@@ -170,7 +170,7 @@ class TestKBVectorStoreEncryption:
         with patch.object(mock_checker.session, 'client', side_effect=lambda service: aoss_mock if service == 'opensearchserverless' else bedrock_agent_mock):
             # Run check
             kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
-            findings = kb_checks.check_vector_store_encryption()
+            kb_checks.check_vector_store_encryption()
 
             # Verify no MEDIUM findings (using customer-managed key)
             medium_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.MEDIUM]
@@ -213,7 +213,7 @@ class TestKBChunkingConfiguration:
 
         # Run check
         kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
-        findings = kb_checks.check_chunking_configuration()
+        kb_checks.check_chunking_configuration()
 
         # Verify MEDIUM finding for excessive chunk size
         medium_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.MEDIUM]
@@ -252,7 +252,7 @@ class TestKBChunkingConfiguration:
 
         # Run check
         kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
-        findings = kb_checks.check_chunking_configuration()
+        kb_checks.check_chunking_configuration()
 
         # Verify no MEDIUM findings (chunk size is acceptable)
         medium_findings = [f for f in mock_checker.findings
@@ -306,7 +306,7 @@ class TestKBIAMPermissions:
 
         # Run check
         kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
-        findings = kb_checks.check_iam_role_permissions()
+        kb_checks.check_iam_role_permissions()
 
         # Verify CRITICAL finding for wildcard permissions
         critical_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.CRITICAL]
@@ -354,7 +354,7 @@ class TestKBIAMPermissions:
 
         # Run check
         kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
-        findings = kb_checks.check_iam_role_permissions()
+        kb_checks.check_iam_role_permissions()
 
         # Verify no CRITICAL findings (permissions are least-privilege)
         critical_findings = [f for f in mock_checker.findings
@@ -395,7 +395,7 @@ class TestKBPIIDetection:
 
         # Run check
         kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
-        findings = kb_checks.check_pii_exposure()
+        kb_checks.check_pii_exposure()
 
         # Verify MEDIUM finding for PII in metadata
         medium_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.MEDIUM]
@@ -430,7 +430,7 @@ class TestKBPIIDetection:
 
         # Run check
         kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
-        findings = kb_checks.check_pii_exposure()
+        kb_checks.check_pii_exposure()
 
         # Verify no MEDIUM findings for PII (INFO finding about limitation is okay)
         medium_findings = [f for f in mock_checker.findings
@@ -476,7 +476,7 @@ class TestKBOpenSearchAccessPolicies:
         with patch.object(mock_checker.session, 'client', side_effect=lambda service: aoss_mock if service == 'opensearchserverless' else bedrock_agent_mock):
             # Run check
             kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
-            findings = kb_checks.check_opensearch_access_policies()
+            kb_checks.check_opensearch_access_policies()
 
             # Verify HIGH finding for wildcard principal
             high_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.HIGH]
@@ -516,7 +516,7 @@ class TestKBOpenSearchAccessPolicies:
         with patch.object(mock_checker.session, 'client', side_effect=lambda service: aoss_mock if service == 'opensearchserverless' else bedrock_agent_mock):
             # Run check
             kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
-            findings = kb_checks.check_opensearch_access_policies()
+            kb_checks.check_opensearch_access_policies()
 
             # Verify no HIGH findings (policy is restrictive)
             high_findings = [f for f in mock_checker.findings

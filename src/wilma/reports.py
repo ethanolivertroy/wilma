@@ -19,10 +19,8 @@ Licensed under GPL v3
 
 import json
 from datetime import datetime
-from collections import defaultdict
-from typing import List, Dict
 
-from wilma.enums import SecurityMode, RiskLevel
+from wilma.enums import RiskLevel, SecurityMode
 
 
 class ReportGenerator:
@@ -116,7 +114,7 @@ class ReportGenerator:
                         report.append(f"   Technical details: {finding['technical_details']}")
 
                     # Show recommendation
-                    report.append(f"   \n   To fix this, run:")
+                    report.append("   \n   To fix this, run:")
                     if finding.get('fix_command'):
                         report.append(f"   > {finding['fix_command']}")
                     else:

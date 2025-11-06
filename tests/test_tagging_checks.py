@@ -5,8 +5,8 @@ Copyright (C) 2024  Ethan Troy
 Licensed under GPL v3
 """
 
-import pytest
 from unittest.mock import Mock
+
 from wilma.checks.tagging import TaggingSecurityChecks
 from wilma.enums import RiskLevel
 
@@ -31,7 +31,7 @@ class TestResourceTagging:
 
         # Run check
         tagging_checks = TaggingSecurityChecks(mock_checker)
-        findings = tagging_checks.check_resource_tagging()
+        tagging_checks.check_resource_tagging()
 
         # Verify LOW finding for missing tags
         low_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.LOW]
@@ -59,7 +59,7 @@ class TestResourceTagging:
 
         # Run check
         tagging_checks = TaggingSecurityChecks(mock_checker)
-        findings = tagging_checks.check_resource_tagging()
+        tagging_checks.check_resource_tagging()
 
         # Verify no LOW findings (all required tags present)
         low_findings = [f for f in mock_checker.findings
@@ -88,7 +88,7 @@ class TestResourceTagging:
 
         # Run check
         tagging_checks = TaggingSecurityChecks(mock_checker)
-        findings = tagging_checks.check_resource_tagging()
+        tagging_checks.check_resource_tagging()
 
         # Verify LOW finding for missing tags
         low_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.LOW]
@@ -115,7 +115,7 @@ class TestCustomModelTagging:
 
         # Run check
         tagging_checks = TaggingSecurityChecks(mock_checker)
-        findings = tagging_checks.check_resource_tagging()
+        tagging_checks.check_resource_tagging()
 
         # Verify LOW finding for missing tags
         low_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.LOW]
@@ -143,7 +143,7 @@ class TestCustomModelTagging:
 
         # Run check
         tagging_checks = TaggingSecurityChecks(mock_checker)
-        findings = tagging_checks.check_resource_tagging()
+        tagging_checks.check_resource_tagging()
 
         # Verify no LOW findings (all required tags present)
         low_findings = [f for f in mock_checker.findings
@@ -174,7 +174,7 @@ class TestKnowledgeBaseTagging:
 
         # Run check
         tagging_checks = TaggingSecurityChecks(mock_checker)
-        findings = tagging_checks.check_resource_tagging()
+        tagging_checks.check_resource_tagging()
 
         # Verify LOW finding for missing tags
         low_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.LOW]
@@ -204,7 +204,7 @@ class TestKnowledgeBaseTagging:
 
         # Run check
         tagging_checks = TaggingSecurityChecks(mock_checker)
-        findings = tagging_checks.check_resource_tagging()
+        tagging_checks.check_resource_tagging()
 
         # Verify no LOW findings (all required tags present)
         low_findings = [f for f in mock_checker.findings

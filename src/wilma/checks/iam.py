@@ -13,9 +13,11 @@ Copyright (C) 2024  Ethan Troy
 Licensed under GPL v3
 """
 
-from typing import List, Dict
+from typing import Dict, List
+
 from botocore.exceptions import ClientError
-from wilma.enums import SecurityMode, RiskLevel
+
+from wilma.enums import RiskLevel, SecurityMode
 from wilma.utils import handle_aws_error, paginate_iam_results
 
 
@@ -45,7 +47,7 @@ class IAMSecurityChecks:
             else:
                 for model in custom_models.get('modelSummaries', []):
                     model_name = model['modelName']
-                    model_arn = model['modelArn']
+                    model['modelArn']
 
                     # Check if model has proper access controls
                     try:
@@ -117,7 +119,7 @@ class IAMSecurityChecks:
                                     technical_details=f"Policy contains wildcard action: {actions}"
                                 )
 
-                except Exception as e:
+                except Exception:
                     continue
 
             if dangerous_count == 0:

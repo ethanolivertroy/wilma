@@ -5,14 +5,13 @@ Copyright (C) 2024  Ethan Troy
 Licensed under GPL v3
 """
 
-import pytest
 from wilma.utils import (
-    parse_arn,
     extract_resource_from_arn,
+    normalize_boto3_tags,
+    parse_arn,
     scan_text_for_pii,
     scan_text_for_prompt_injection,
     validate_resource_tags,
-    normalize_boto3_tags
 )
 
 

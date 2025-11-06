@@ -12,9 +12,11 @@ Copyright (C) 2024  Ethan Troy
 Licensed under GPL v3
 """
 
-from typing import List, Dict
+from typing import Dict, List
+
 from botocore.exceptions import ClientError
-from wilma.enums import SecurityMode, RiskLevel
+
+from wilma.enums import RiskLevel, SecurityMode
 from wilma.utils import handle_aws_error
 
 
@@ -152,8 +154,8 @@ class GenAISecurityChecks:
                                 issue="Guardrails exist but lack PROMPT_ATTACK filter",
                                 recommendation="Add PROMPT_ATTACK content filter to guardrails",
                                 fix_command=(
-                                    f"aws bedrock update-guardrail --guardrail-identifier GUARDRAIL_ID \\\n"
-                                    f"  --content-policy-config 'filtersConfig=[{{type=PROMPT_ATTACK,inputStrength=HIGH,outputStrength=HIGH}}]'"
+                                    "aws bedrock update-guardrail --guardrail-identifier GUARDRAIL_ID \\\n"
+                                    "  --content-policy-config 'filtersConfig=[{type=PROMPT_ATTACK,inputStrength=HIGH,outputStrength=HIGH}]'"
                                 ),
                                 learn_more="PROMPT_ATTACK filters detect and block prompt injection attempts",
                                 technical_details=f"Guardrails missing prompt injection protection: {', '.join(missing_prompt_filter)}"
@@ -172,7 +174,7 @@ class GenAISecurityChecks:
                                         f"  --content-policy-config 'filtersConfig=[{{type=PROMPT_ATTACK,inputStrength=HIGH,outputStrength=HIGH}}]'"
                                     ),
                                     learn_more="LOW/MEDIUM strength allows more prompt injection attempts to pass through",
-                                    technical_details=f"Filter strength should be HIGH for maximum protection against sophisticated attacks"
+                                    technical_details="Filter strength should be HIGH for maximum protection against sophisticated attacks"
                                 )
 
                         if properly_configured:

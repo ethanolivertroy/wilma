@@ -13,8 +13,7 @@ MITRE ATLAS: AML.T0020 (Poison Training Data), AML.T0024 (Backdoor ML Model)
 See ROADMAP.md Section 1.4 for complete implementation details.
 """
 
-from typing import Dict, List, Optional
-from ..enums import RiskLevel
+from typing import Dict, List
 
 
 class FineTuningSecurityChecks:

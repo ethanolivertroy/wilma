@@ -12,8 +12,7 @@ MITRE ATLAS: AML.T0051 (LLM Prompt Injection)
 See ROADMAP.md Section 1.1 for complete implementation details.
 """
 
-from typing import Dict, List, Optional
-from ..enums import RiskLevel
+from typing import Dict, List
 
 
 class AgentSecurityChecks:

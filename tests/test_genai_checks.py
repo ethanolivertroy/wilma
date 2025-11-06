@@ -5,8 +5,8 @@ Copyright (C) 2024  Ethan Troy
 Licensed under GPL v3
 """
 
-import pytest
 from unittest.mock import Mock, patch
+
 from wilma.checks.genai import GenAISecurityChecks
 from wilma.enums import RiskLevel
 
@@ -30,7 +30,7 @@ class TestPromptInjectionCheck:
 
         # Run check
         genai_checks = GenAISecurityChecks(mock_checker)
-        findings = genai_checks.check_prompt_injection_vulnerabilities()
+        genai_checks.check_prompt_injection_vulnerabilities()
 
         # Verify finding was created
         high_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.HIGH]
@@ -57,7 +57,7 @@ class TestPromptInjectionCheck:
 
         # Run check
         genai_checks = GenAISecurityChecks(mock_checker)
-        findings = genai_checks.check_prompt_injection_vulnerabilities()
+        genai_checks.check_prompt_injection_vulnerabilities()
 
         # Verify HIGH risk finding for missing filter
         high_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.HIGH]
@@ -86,7 +86,7 @@ class TestPromptInjectionCheck:
 
         # Run check
         genai_checks = GenAISecurityChecks(mock_checker)
-        findings = genai_checks.check_prompt_injection_vulnerabilities()
+        genai_checks.check_prompt_injection_vulnerabilities()
 
         # Verify MEDIUM risk finding for weak strength
         medium_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.MEDIUM]
@@ -115,7 +115,7 @@ class TestPromptInjectionCheck:
 
         # Run check
         genai_checks = GenAISecurityChecks(mock_checker)
-        findings = genai_checks.check_prompt_injection_vulnerabilities()
+        genai_checks.check_prompt_injection_vulnerabilities()
 
         # Verify good practice was recorded (no HIGH/CRITICAL findings)
         high_or_critical = [f for f in mock_checker.findings
@@ -135,7 +135,7 @@ class TestCostAnomalyDetection:
 
         # Run check
         genai_checks = GenAISecurityChecks(mock_checker)
-        findings = genai_checks.check_cost_anomaly_detection()
+        genai_checks.check_cost_anomaly_detection()
 
         # Verify finding was created
         medium_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.MEDIUM]
@@ -157,7 +157,7 @@ class TestCostAnomalyDetection:
 
         # Run check
         genai_checks = GenAISecurityChecks(mock_checker)
-        findings = genai_checks.check_cost_anomaly_detection()
+        genai_checks.check_cost_anomaly_detection()
 
         # Verify no MEDIUM findings (good practice recorded instead)
         medium_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.MEDIUM]
@@ -175,7 +175,7 @@ class TestDataPrivacyCompliance:
 
         # Run check
         genai_checks = GenAISecurityChecks(mock_checker)
-        findings = genai_checks.check_data_privacy_compliance()
+        genai_checks.check_data_privacy_compliance()
 
         # Should not create PII findings when logging is disabled
         # (no data is being logged, so no PII exposure risk)
@@ -192,13 +192,12 @@ class TestDataPrivacyCompliance:
         }
 
         # Mock S3 encryption check to return unencrypted
-        from wilma.utils import check_s3_bucket_encryption
         with patch('wilma.checks.genai.check_s3_bucket_encryption') as mock_check:
             mock_check.return_value = {'encrypted': False}
 
             # Run check
             genai_checks = GenAISecurityChecks(mock_checker)
-            findings = genai_checks.check_data_privacy_compliance()
+            genai_checks.check_data_privacy_compliance()
 
             # Verify HIGH risk finding for unencrypted bucket
             high_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.HIGH]
@@ -218,7 +217,6 @@ class TestDataPrivacyCompliance:
         }
 
         # Mock encryption checks to return encrypted
-        from wilma.utils import check_s3_bucket_encryption, check_log_group_encryption
         with patch('wilma.checks.genai.check_s3_bucket_encryption') as mock_s3, \
              patch('wilma.checks.genai.check_log_group_encryption') as mock_cw:
             mock_s3.return_value = {'encrypted': True, 'uses_customer_key': True}
@@ -226,7 +224,7 @@ class TestDataPrivacyCompliance:
 
             # Run check
             genai_checks = GenAISecurityChecks(mock_checker)
-            findings = genai_checks.check_data_privacy_compliance()
+            genai_checks.check_data_privacy_compliance()
 
             # Should only have INFO level findings (best practice guidance)
             high_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.HIGH]

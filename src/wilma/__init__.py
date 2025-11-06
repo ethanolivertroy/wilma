@@ -17,6 +17,6 @@ __author__ = "Ethan Troy"
 __license__ = "GPL-3.0"
 
 from wilma.checker import BedrockSecurityChecker
-from wilma.enums import SecurityMode, RiskLevel
+from wilma.enums import RiskLevel, SecurityMode
 
 __all__ = ["BedrockSecurityChecker", "SecurityMode", "RiskLevel"]

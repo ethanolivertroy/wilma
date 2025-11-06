@@ -11,10 +11,10 @@ the Free Software Foundation, either version 3 of the License, or
 
 from wilma.checks.genai import GenAISecurityChecks
 from wilma.checks.iam import IAMSecurityChecks
+from wilma.checks.knowledge_bases import KnowledgeBaseSecurityChecks
 from wilma.checks.logging import LoggingSecurityChecks
 from wilma.checks.network import NetworkSecurityChecks
 from wilma.checks.tagging import TaggingSecurityChecks
-from wilma.checks.knowledge_bases import KnowledgeBaseSecurityChecks
 
 # Priority 1 modules - uncomment as implemented
 # from wilma.checks.agents import AgentSecurityChecks

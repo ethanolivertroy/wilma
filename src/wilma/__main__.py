@@ -9,13 +9,13 @@ the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
 """
 
-import sys
 import argparse
+import sys
 
 from wilma.checker import BedrockSecurityChecker
-from wilma.reports import ReportGenerator
-from wilma.enums import SecurityMode, RiskLevel
 from wilma.config import WilmaConfig, create_example_config
+from wilma.enums import RiskLevel, SecurityMode
+from wilma.reports import ReportGenerator
 
 
 def main():

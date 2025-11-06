@@ -10,9 +10,9 @@ the Free Software Foundation, either version 3 of the License, or
 """
 
 import re
-from typing import Dict, List, Any, Iterator, Optional, Callable
-from botocore.exceptions import ClientError
+from typing import Any, Callable, Dict, Iterator, List, Optional
 
+from botocore.exceptions import ClientError
 
 # ============================================================================
 # SECURITY PATTERN CONSTANTS
@@ -164,8 +164,8 @@ def extract_resource_from_arn(arn: str, default: Optional[str] = None) -> Option
 def paginate_aws_results(
     client_method: Callable,
     result_key: str,
-    token_key: str = 'NextToken',
-    token_param: str = 'NextToken',
+    token_key: str = 'NextToken',  # noqa: S107 - AWS pagination token, not a password
+    token_param: str = 'NextToken',  # noqa: S107 - AWS pagination parameter, not a password
     **kwargs
 ) -> Iterator[Dict[str, Any]]:
     """
@@ -201,8 +201,7 @@ def paginate_aws_results(
             response = client_method(**kwargs)
 
             # Yield each item from the results
-            for item in response.get(result_key, []):
-                yield item
+            yield from response.get(result_key, [])
 
             # Check if there are more results
             next_token = response.get(token_key)

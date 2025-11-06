@@ -5,8 +5,8 @@ Copyright (C) 2024  Ethan Troy
 Licensed under GPL v3
 """
 
-import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import patch
+
 from wilma.checks.logging import LoggingSecurityChecks
 from wilma.enums import RiskLevel
 
@@ -23,7 +23,7 @@ class TestModelInvocationLogging:
 
         # Run check
         logging_checks = LoggingSecurityChecks(mock_checker)
-        findings = logging_checks.check_model_invocation_logging()
+        logging_checks.check_model_invocation_logging()
 
         # Verify MEDIUM finding for disabled logging
         medium_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.MEDIUM]
@@ -42,7 +42,7 @@ class TestModelInvocationLogging:
 
         # Run check
         logging_checks = LoggingSecurityChecks(mock_checker)
-        findings = logging_checks.check_model_invocation_logging()
+        logging_checks.check_model_invocation_logging()
 
         # Verify no MEDIUM findings (logging is enabled)
         medium_findings = [f for f in mock_checker.findings
@@ -63,7 +63,7 @@ class TestModelInvocationLogging:
 
         # Run check
         logging_checks = LoggingSecurityChecks(mock_checker)
-        findings = logging_checks.check_model_invocation_logging()
+        logging_checks.check_model_invocation_logging()
 
         # Verify no MEDIUM findings (logging is enabled)
         medium_findings = [f for f in mock_checker.findings
@@ -87,7 +87,7 @@ class TestModelInvocationLogging:
 
         # Run check
         logging_checks = LoggingSecurityChecks(mock_checker)
-        findings = logging_checks.check_model_invocation_logging()
+        logging_checks.check_model_invocation_logging()
 
         # Verify no MEDIUM findings
         medium_findings = [f for f in mock_checker.findings
@@ -120,7 +120,7 @@ class TestLogRetention:
 
         # Run check
         logging_checks = LoggingSecurityChecks(mock_checker)
-        findings = logging_checks.check_log_retention()
+        logging_checks.check_log_retention()
 
         # Verify MEDIUM finding for insufficient retention
         medium_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.MEDIUM]
@@ -147,7 +147,7 @@ class TestLogRetention:
 
         # Run check
         logging_checks = LoggingSecurityChecks(mock_checker)
-        findings = logging_checks.check_log_retention()
+        logging_checks.check_log_retention()
 
         # Verify no MEDIUM findings (retention is adequate)
         medium_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.MEDIUM]
@@ -174,7 +174,7 @@ class TestLogRetention:
 
         # Run check
         logging_checks = LoggingSecurityChecks(mock_checker)
-        findings = logging_checks.check_log_retention()
+        logging_checks.check_log_retention()
 
         # Indefinite retention is acceptable for compliance
         # Should not create MEDIUM findings
@@ -202,7 +202,7 @@ class TestLogEncryption:
 
             # Run check
             logging_checks = LoggingSecurityChecks(mock_checker)
-            findings = logging_checks.check_log_encryption()
+            logging_checks.check_log_encryption()
 
             # Verify HIGH finding for unencrypted logs
             high_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.HIGH]
@@ -225,7 +225,7 @@ class TestLogEncryption:
 
             # Run check
             logging_checks = LoggingSecurityChecks(mock_checker)
-            findings = logging_checks.check_log_encryption()
+            logging_checks.check_log_encryption()
 
             # Verify no HIGH findings (logs are encrypted)
             high_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.HIGH]
@@ -248,7 +248,7 @@ class TestLogEncryption:
 
             # Run check
             logging_checks = LoggingSecurityChecks(mock_checker)
-            findings = logging_checks.check_log_encryption()
+            logging_checks.check_log_encryption()
 
             # Verify HIGH finding for unencrypted S3
             high_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.HIGH]
@@ -271,7 +271,7 @@ class TestLogEncryption:
 
             # Run check
             logging_checks = LoggingSecurityChecks(mock_checker)
-            findings = logging_checks.check_log_encryption()
+            logging_checks.check_log_encryption()
 
             # Verify no HIGH findings (S3 is encrypted)
             high_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.HIGH]

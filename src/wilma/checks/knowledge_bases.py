@@ -24,10 +24,13 @@ Threat Coverage:
 - MITRE ATLAS AML.T0020: Poison Training Data
 """
 
-from typing import Dict, List, Optional
+from typing import Dict, List
+
 from botocore.exceptions import ClientError
+
+from wilma.utils import handle_aws_error, paginate_aws_results
+
 from ..enums import RiskLevel
-from wilma.utils import paginate_aws_results, handle_aws_error
 
 
 class KnowledgeBaseSecurityChecks:
@@ -60,11 +63,12 @@ class KnowledgeBaseSecurityChecks:
         """
         knowledge_bases = []
         try:
+            # Note: 'nextToken' parameters are AWS pagination tokens, not passwords (S106 false positive)
             for kb in paginate_aws_results(
                 self.bedrock_agent.list_knowledge_bases,
                 'knowledgeBaseSummaries',
-                token_key='nextToken',
-                token_param='nextToken',
+                token_key='nextToken',  # noqa: S106
+                token_param='nextToken',  # noqa: S106
                 maxResults=100
             ):
                 knowledge_bases.append(kb)
@@ -105,7 +109,7 @@ class KnowledgeBaseSecurityChecks:
                     # Get detailed knowledge base configuration
                     kb_details = self.bedrock_agent.get_knowledge_base(knowledgeBaseId=kb_id)
                     kb_config = kb_details.get('knowledgeBase', {})
-                    storage_config = kb_config.get('storageConfiguration', {})
+                    kb_config.get('storageConfiguration', {})
 
                     # Extract S3 data source information
                     data_sources_response = self.bedrock_agent.list_data_sources(
@@ -156,7 +160,7 @@ class KnowledgeBaseSecurityChecks:
                             if not all_blocked:
                                 findings.append({
                                     'risk_level': RiskLevel.CRITICAL,
-                                    'title': f'Knowledge Base S3 bucket lacks complete public access blocking',
+                                    'title': 'Knowledge Base S3 bucket lacks complete public access blocking',
                                     'description': (
                                         f'Knowledge Base "{kb_name}" uses S3 bucket "{bucket_name}" '
                                         f'which does not have all Block Public Access settings enabled. '
@@ -186,7 +190,7 @@ class KnowledgeBaseSecurityChecks:
                             # No public access block configuration exists - CRITICAL
                             findings.append({
                                 'risk_level': RiskLevel.CRITICAL,
-                                'title': f'Knowledge Base S3 bucket has no public access blocking',
+                                'title': 'Knowledge Base S3 bucket has no public access blocking',
                                 'description': (
                                     f'Knowledge Base "{kb_name}" uses S3 bucket "{bucket_name}" '
                                     f'which has NO Block Public Access configuration. This is extremely '
@@ -327,7 +331,7 @@ class KnowledgeBaseSecurityChecks:
                             if not encryption_rules:
                                 findings.append(self._create_s3_encryption_finding(
                                     risk_level=RiskLevel.HIGH,
-                                    title=f'Knowledge Base S3 bucket has no encryption',
+                                    title='Knowledge Base S3 bucket has no encryption',
                                     kb_name=kb_name,
                                     kb_id=kb_id,
                                     ds_name=ds_name,
@@ -351,7 +355,7 @@ class KnowledgeBaseSecurityChecks:
                                         # Using AWS-managed keys (SSE-S3)
                                         findings.append({
                                             'risk_level': RiskLevel.MEDIUM,
-                                            'title': f'Knowledge Base S3 bucket uses AWS-managed encryption',
+                                            'title': 'Knowledge Base S3 bucket uses AWS-managed encryption',
                                             'description': (
                                                 f'Knowledge Base "{kb_name}" uses S3 bucket "{bucket_name}" '
                                                 f'which is encrypted with AWS-managed keys (SSE-S3). Best practice '
@@ -382,7 +386,7 @@ class KnowledgeBaseSecurityChecks:
                                         # Using default AWS KMS key
                                         findings.append({
                                             'risk_level': RiskLevel.MEDIUM,
-                                            'title': f'Knowledge Base S3 bucket uses default KMS key',
+                                            'title': 'Knowledge Base S3 bucket uses default KMS key',
                                             'description': (
                                                 f'Knowledge Base "{kb_name}" uses S3 bucket "{bucket_name}" '
                                                 f'which is encrypted with the default AWS KMS key. Best practice '
@@ -414,7 +418,7 @@ class KnowledgeBaseSecurityChecks:
                         except self.s3.exceptions.ServerSideEncryptionConfigurationNotFoundError:
                             findings.append(self._create_s3_encryption_finding(
                                 risk_level=RiskLevel.HIGH,
-                                title=f'Knowledge Base S3 bucket has no encryption',
+                                title='Knowledge Base S3 bucket has no encryption',
                                 kb_name=kb_name,
                                 kb_id=kb_id,
                                 ds_name=ds_name,
@@ -481,13 +485,13 @@ class KnowledgeBaseSecurityChecks:
 
                     elif storage_type == 'PINECONE':
                         # Pinecone - managed service, check configuration
-                        pinecone_config = storage_config.get('pineconeConfiguration', {})
+                        storage_config.get('pineconeConfiguration', {})
                         # Pinecone encrypts at rest by default, but we note it
                         print(f"[INFO] Knowledge Base {kb_name} uses Pinecone (encrypted by default)")
 
                     elif storage_type == 'REDIS_ENTERPRISE_CLOUD':
                         # Redis Enterprise Cloud - check configuration
-                        redis_config = storage_config.get('redisEnterpriseCloudConfiguration', {})
+                        storage_config.get('redisEnterpriseCloudConfiguration', {})
                         # Redis Enterprise encrypts at rest, but we note it
                         print(f"[INFO] Knowledge Base {kb_name} uses Redis Enterprise (encrypted by default)")
 
@@ -518,7 +522,7 @@ class KnowledgeBaseSecurityChecks:
                                             if not storage_encrypted:
                                                 findings.append({
                                                     'risk_level': RiskLevel.HIGH,
-                                                    'title': f'Knowledge Base Aurora cluster is not encrypted',
+                                                    'title': 'Knowledge Base Aurora cluster is not encrypted',
                                                     'description': (
                                                         f'Knowledge Base "{kb_name}" uses Aurora cluster "{cluster_id}" '
                                                         f'which does not have storage encryption enabled. Your vector '
@@ -527,12 +531,12 @@ class KnowledgeBaseSecurityChecks:
                                                     'location': f'Knowledge Base: {kb_name}',
                                                     'resource': cluster_id,
                                                     'remediation': (
-                                                        f'Aurora encryption cannot be enabled on existing clusters. '
-                                                        f'You must:\n'
-                                                        f'1. Create encrypted snapshot of current cluster\n'
-                                                        f'2. Copy snapshot with encryption enabled\n'
-                                                        f'3. Restore from encrypted snapshot\n'
-                                                        f'4. Update knowledge base to use new encrypted cluster'
+                                                        'Aurora encryption cannot be enabled on existing clusters. '
+                                                        'You must:\n'
+                                                        '1. Create encrypted snapshot of current cluster\n'
+                                                        '2. Copy snapshot with encryption enabled\n'
+                                                        '3. Restore from encrypted snapshot\n'
+                                                        '4. Update knowledge base to use new encrypted cluster'
                                                     ),
                                                     'details': {
                                                         'knowledge_base_id': kb_id,
@@ -555,7 +559,7 @@ class KnowledgeBaseSecurityChecks:
                                             if not storage_encrypted:
                                                 findings.append({
                                                     'risk_level': RiskLevel.HIGH,
-                                                    'title': f'Knowledge Base RDS instance is not encrypted',
+                                                    'title': 'Knowledge Base RDS instance is not encrypted',
                                                     'description': (
                                                         f'Knowledge Base "{kb_name}" uses RDS instance "{cluster_id}" '
                                                         f'which does not have storage encryption enabled. Your vector '
@@ -564,12 +568,12 @@ class KnowledgeBaseSecurityChecks:
                                                     'location': f'Knowledge Base: {kb_name}',
                                                     'resource': cluster_id,
                                                     'remediation': (
-                                                        f'RDS encryption cannot be enabled on existing instances. '
-                                                        f'You must:\n'
-                                                        f'1. Create encrypted snapshot of current instance\n'
-                                                        f'2. Copy snapshot with encryption enabled\n'
-                                                        f'3. Restore from encrypted snapshot\n'
-                                                        f'4. Update knowledge base to use new encrypted instance'
+                                                        'RDS encryption cannot be enabled on existing instances. '
+                                                        'You must:\n'
+                                                        '1. Create encrypted snapshot of current instance\n'
+                                                        '2. Copy snapshot with encryption enabled\n'
+                                                        '3. Restore from encrypted snapshot\n'
+                                                        '4. Update knowledge base to use new encrypted instance'
                                                     ),
                                                     'details': {
                                                         'knowledge_base_id': kb_id,
@@ -643,7 +647,7 @@ class KnowledgeBaseSecurityChecks:
 
                                     if collections:
                                         collection = collections[0]
-                                        collection_type = collection.get('type', '')
+                                        collection.get('type', '')
 
                                         # OpenSearch Serverless collections should have VPC endpoints
                                         # Check if collection has network access policy
@@ -666,7 +670,7 @@ class KnowledgeBaseSecurityChecks:
                                                         if rule.get('AllowFromPublic', False):
                                                             findings.append({
                                                                 'risk_level': RiskLevel.CRITICAL,
-                                                                'title': f'Knowledge Base OpenSearch collection allows public access',
+                                                                'title': 'Knowledge Base OpenSearch collection allows public access',
                                                                 'description': (
                                                                     f'Knowledge Base "{kb_name}" uses OpenSearch Serverless '
                                                                     f'collection "{collection_name}" which allows public access. '
@@ -697,7 +701,7 @@ class KnowledgeBaseSecurityChecks:
                                             # No network policy - potentially public
                                             findings.append({
                                                 'risk_level': RiskLevel.HIGH,
-                                                'title': f'Knowledge Base OpenSearch collection has no network policy',
+                                                'title': 'Knowledge Base OpenSearch collection has no network policy',
                                                 'description': (
                                                     f'Knowledge Base "{kb_name}" uses OpenSearch Serverless '
                                                     f'collection "{collection_name}" which has no network access policy. '
@@ -753,7 +757,7 @@ class KnowledgeBaseSecurityChecks:
                                                     if has_wildcard_principal:
                                                         findings.append({
                                                             'risk_level': RiskLevel.HIGH,
-                                                            'title': f'Knowledge Base OpenSearch collection has overly permissive data access policy',
+                                                            'title': 'Knowledge Base OpenSearch collection has overly permissive data access policy',
                                                             'description': (
                                                                 f'Knowledge Base "{kb_name}" uses OpenSearch Serverless '
                                                                 f'collection "{collection_name}" with a data access policy '
@@ -786,7 +790,7 @@ class KnowledgeBaseSecurityChecks:
                                             # No data access policy
                                             findings.append({
                                                 'risk_level': RiskLevel.HIGH,
-                                                'title': f'Knowledge Base OpenSearch collection has no data access policy',
+                                                'title': 'Knowledge Base OpenSearch collection has no data access policy',
                                                 'description': (
                                                     f'Knowledge Base "{kb_name}" uses OpenSearch Serverless '
                                                     f'collection "{collection_name}" which has no data access policy. '
@@ -842,7 +846,7 @@ class KnowledgeBaseSecurityChecks:
                                             if publicly_accessible:
                                                 findings.append({
                                                     'risk_level': RiskLevel.CRITICAL,
-                                                    'title': f'Knowledge Base Aurora cluster is publicly accessible',
+                                                    'title': 'Knowledge Base Aurora cluster is publicly accessible',
                                                     'description': (
                                                         f'Knowledge Base "{kb_name}" uses Aurora cluster "{cluster_id}" '
                                                         f'which is configured as publicly accessible. Your vector '
@@ -876,7 +880,7 @@ class KnowledgeBaseSecurityChecks:
                                             if publicly_accessible:
                                                 findings.append({
                                                     'risk_level': RiskLevel.CRITICAL,
-                                                    'title': f'Knowledge Base RDS instance is publicly accessible',
+                                                    'title': 'Knowledge Base RDS instance is publicly accessible',
                                                     'description': (
                                                         f'Knowledge Base "{kb_name}" uses RDS instance "{cluster_id}" '
                                                         f'which is configured as publicly accessible. Your vector '
@@ -952,7 +956,7 @@ class KnowledgeBaseSecurityChecks:
                 if pii_found_in_metadata:
                     findings.append({
                         'risk_level': RiskLevel.HIGH,
-                        'title': f'Knowledge Base metadata contains PII patterns',
+                        'title': 'Knowledge Base metadata contains PII patterns',
                         'description': (
                             f'Knowledge Base "{kb_name}" has PII-like patterns in its metadata: '
                             f'{", ".join(pii_found_in_metadata)}. This may indicate sensitive '
@@ -961,10 +965,10 @@ class KnowledgeBaseSecurityChecks:
                         'location': f'Knowledge Base: {kb_name}',
                         'resource': kb_id,
                         'remediation': (
-                            f'Remove PII from knowledge base metadata:\n'
-                            f'1. Update knowledge base name and description to remove sensitive data\n'
-                            f'2. Use generic identifiers instead of personal information\n'
-                            f'3. Review data governance policies'
+                            'Remove PII from knowledge base metadata:\n'
+                            '1. Update knowledge base name and description to remove sensitive data\n'
+                            '2. Use generic identifiers instead of personal information\n'
+                            '3. Review data governance policies'
                         ),
                         'details': {
                             'knowledge_base_id': kb_id,
@@ -995,7 +999,7 @@ class KnowledgeBaseSecurityChecks:
                         if pii_in_ds:
                             findings.append({
                                 'risk_level': RiskLevel.HIGH,
-                                'title': f'Knowledge Base data source contains PII patterns',
+                                'title': 'Knowledge Base data source contains PII patterns',
                                 'description': (
                                     f'Data source "{ds_name}" in Knowledge Base "{kb_name}" '
                                     f'contains PII-like patterns: {", ".join(pii_in_ds)}.'
@@ -1003,10 +1007,10 @@ class KnowledgeBaseSecurityChecks:
                                 'location': f'Knowledge Base: {kb_name}, Data Source: {ds_name}',
                                 'resource': ds_id,
                                 'remediation': (
-                                    f'Remove PII from data source configuration:\n'
-                                    f'1. Update data source name and description\n'
-                                    f'2. Use AWS Macie for comprehensive PII scanning of S3 buckets\n'
-                                    f'3. Implement DLP policies before embedding'
+                                    'Remove PII from data source configuration:\n'
+                                    '1. Update data source name and description\n'
+                                    '2. Use AWS Macie for comprehensive PII scanning of S3 buckets\n'
+                                    '3. Implement DLP policies before embedding'
                                 ),
                                 'details': {
                                     'knowledge_base_id': kb_id,
@@ -1041,7 +1045,7 @@ class KnowledgeBaseSecurityChecks:
                             if pii_in_s3:
                                 findings.append({
                                     'risk_level': RiskLevel.MEDIUM,
-                                    'title': f'S3 bucket configuration contains PII patterns',
+                                    'title': 'S3 bucket configuration contains PII patterns',
                                     'description': (
                                         f'S3 bucket or prefix for data source "{ds_name}" contains '
                                         f'PII-like patterns: {", ".join(set(pii_in_s3))}. This may '
@@ -1050,10 +1054,10 @@ class KnowledgeBaseSecurityChecks:
                                     'location': f'Knowledge Base: {kb_name}, Data Source: {ds_name}',
                                     'resource': f's3://{bucket_name}',
                                     'remediation': (
-                                        f'Review S3 bucket structure:\n'
-                                        f'1. Use generic bucket names without PII\n'
-                                        f'2. Implement Amazon Macie for comprehensive PII detection\n'
-                                        f'3. Enable S3 Object Lambda for PII redaction before embedding'
+                                        'Review S3 bucket structure:\n'
+                                        '1. Use generic bucket names without PII\n'
+                                        '2. Implement Amazon Macie for comprehensive PII detection\n'
+                                        '3. Enable S3 Object Lambda for PII redaction before embedding'
                                     ),
                                     'details': {
                                         'knowledge_base_id': kb_id,
@@ -1167,7 +1171,7 @@ class KnowledgeBaseSecurityChecks:
                 if injection_in_metadata or unicode_found:
                     findings.append({
                         'risk_level': RiskLevel.HIGH,
-                        'title': f'Knowledge Base metadata contains prompt injection patterns',
+                        'title': 'Knowledge Base metadata contains prompt injection patterns',
                         'description': (
                             f'Knowledge Base "{kb_name}" metadata contains suspicious patterns '
                             f'that may indicate prompt injection attempts: '
@@ -1177,10 +1181,10 @@ class KnowledgeBaseSecurityChecks:
                         'location': f'Knowledge Base: {kb_name}',
                         'resource': kb_id,
                         'remediation': (
-                            f'Review and sanitize knowledge base metadata:\n'
-                            f'1. Remove instruction-like language from names/descriptions\n'
-                            f'2. Check for invisible Unicode characters\n'
-                            f'3. Use plain, descriptive text only'
+                            'Review and sanitize knowledge base metadata:\n'
+                            '1. Remove instruction-like language from names/descriptions\n'
+                            '2. Check for invisible Unicode characters\n'
+                            '3. Use plain, descriptive text only'
                         ),
                         'details': {
                             'knowledge_base_id': kb_id,
@@ -1217,7 +1221,7 @@ class KnowledgeBaseSecurityChecks:
                         if injection_in_ds or unicode_in_ds:
                             findings.append({
                                 'risk_level': RiskLevel.HIGH,
-                                'title': f'Data source contains prompt injection patterns',
+                                'title': 'Data source contains prompt injection patterns',
                                 'description': (
                                     f'Data source "{ds_name}" contains suspicious patterns: '
                                     f'{", ".join(injection_in_ds + unicode_in_ds)}. '
@@ -1226,11 +1230,11 @@ class KnowledgeBaseSecurityChecks:
                                 'location': f'Knowledge Base: {kb_name}, Data Source: {ds_name}',
                                 'resource': ds_id,
                                 'remediation': (
-                                    f'Scan and sanitize data source content:\n'
-                                    f'1. Review documents for instruction-like content\n'
-                                    f'2. Remove invisible Unicode characters\n'
-                                    f'3. Implement content filtering before embedding\n'
-                                    f'4. Use guardrails to block injection attempts'
+                                    'Scan and sanitize data source content:\n'
+                                    '1. Review documents for instruction-like content\n'
+                                    '2. Remove invisible Unicode characters\n'
+                                    '3. Implement content filtering before embedding\n'
+                                    '4. Use guardrails to block injection attempts'
                                 ),
                                 'details': {
                                     'knowledge_base_id': kb_id,
@@ -1350,7 +1354,7 @@ class KnowledgeBaseSecurityChecks:
                             if versioning_status != 'Enabled':
                                 findings.append({
                                     'risk_level': RiskLevel.MEDIUM,
-                                    'title': f'Knowledge Base S3 bucket has versioning disabled',
+                                    'title': 'Knowledge Base S3 bucket has versioning disabled',
                                     'description': (
                                         f'Knowledge Base "{kb_name}" uses S3 bucket "{bucket_name}" '
                                         f'which does not have versioning enabled. Without versioning, '
@@ -1419,7 +1423,7 @@ class KnowledgeBaseSecurityChecks:
                             try:
                                 # Get role policies
                                 role_response = self.checker.iam.get_role(RoleName=role_name)
-                                role = role_response.get('Role', {})
+                                role_response.get('Role', {})
 
                                 # Check attached policies
                                 attached_policies_response = self.checker.iam.list_attached_role_policies(
@@ -1439,7 +1443,7 @@ class KnowledgeBaseSecurityChecks:
                                     if policy_name in dangerous_policies:
                                         findings.append({
                                             'risk_level': RiskLevel.HIGH,
-                                            'title': f'Knowledge Base role uses overly permissive policy',
+                                            'title': 'Knowledge Base role uses overly permissive policy',
                                             'description': (
                                                 f'Knowledge Base "{kb_name}" uses IAM role "{role_name}" '
                                                 f'which has the "{policy_name}" policy attached. This grants '
@@ -1497,7 +1501,7 @@ class KnowledgeBaseSecurityChecks:
                                                 if has_wildcard_action and has_wildcard_resource:
                                                     findings.append({
                                                         'risk_level': RiskLevel.CRITICAL,
-                                                        'title': f'Knowledge Base role has inline policy with full wildcard permissions',
+                                                        'title': 'Knowledge Base role has inline policy with full wildcard permissions',
                                                         'description': (
                                                             f'Knowledge Base "{kb_name}" uses IAM role "{role_name}" '
                                                             f'which has an inline policy "{inline_policy_name}" with '
@@ -1523,7 +1527,7 @@ class KnowledgeBaseSecurityChecks:
                                                 elif has_wildcard_action:
                                                     findings.append({
                                                         'risk_level': RiskLevel.HIGH,
-                                                        'title': f'Knowledge Base role has inline policy with wildcard actions',
+                                                        'title': 'Knowledge Base role has inline policy with wildcard actions',
                                                         'description': (
                                                             f'Knowledge Base "{kb_name}" uses IAM role "{role_name}" '
                                                             f'which has an inline policy "{inline_policy_name}" with '
@@ -1532,9 +1536,9 @@ class KnowledgeBaseSecurityChecks:
                                                         'location': f'Knowledge Base: {kb_name}',
                                                         'resource': role_arn,
                                                         'remediation': (
-                                                            f'Restrict inline policy to specific actions:\n'
-                                                            f'Replace Action:"*" with specific required actions like:\n'
-                                                            f'  s3:GetObject, s3:ListBucket, aoss:APIAccessAll, bedrock:InvokeModel'
+                                                            'Restrict inline policy to specific actions:\n'
+                                                            'Replace Action:"*" with specific required actions like:\n'
+                                                            '  s3:GetObject, s3:ListBucket, aoss:APIAccessAll, bedrock:InvokeModel'
                                                         ),
                                                         'details': {
                                                             'knowledge_base_id': kb_id,
@@ -1597,7 +1601,7 @@ class KnowledgeBaseSecurityChecks:
                         )
 
                         ds_config = ds_details.get('dataSource', {}).get('dataSourceConfiguration', {})
-                        s3_config = ds_config.get('s3Configuration', {})
+                        ds_config.get('s3Configuration', {})
 
                         # Check chunking strategy
                         chunking_config = ds_config.get('chunkingConfiguration', {})
@@ -1606,7 +1610,7 @@ class KnowledgeBaseSecurityChecks:
                         if chunking_strategy == 'NONE':
                             findings.append({
                                 'risk_level': RiskLevel.LOW,
-                                'title': f'Knowledge Base data source has no chunking strategy',
+                                'title': 'Knowledge Base data source has no chunking strategy',
                                 'description': (
                                     f'Data source "{ds_name}" in Knowledge Base "{kb_name}" has no '
                                     f'chunking strategy defined. This may result in entire documents being '
@@ -1615,11 +1619,11 @@ class KnowledgeBaseSecurityChecks:
                                 'location': f'Knowledge Base: {kb_name}, Data Source: {ds_name}',
                                 'resource': ds_id,
                                 'remediation': (
-                                    f'Configure appropriate chunking strategy:\n'
-                                    f'1. Use FIXED_SIZE chunking with reasonable chunk size (e.g., 300-512 tokens)\n'
-                                    f'2. Set overlap to 10-20% to maintain context\n'
-                                    f'3. Consider HIERARCHICAL chunking for complex documents\n'
-                                    f'Update via AWS Bedrock console or update-data-source API'
+                                    'Configure appropriate chunking strategy:\n'
+                                    '1. Use FIXED_SIZE chunking with reasonable chunk size (e.g., 300-512 tokens)\n'
+                                    '2. Set overlap to 10-20% to maintain context\n'
+                                    '3. Consider HIERARCHICAL chunking for complex documents\n'
+                                    'Update via AWS Bedrock console or update-data-source API'
                                 ),
                                 'details': {
                                     'knowledge_base_id': kb_id,
@@ -1636,7 +1640,7 @@ class KnowledgeBaseSecurityChecks:
                             if max_tokens > 1000:
                                 findings.append({
                                     'risk_level': RiskLevel.LOW,
-                                    'title': f'Knowledge Base data source has large chunk size',
+                                    'title': 'Knowledge Base data source has large chunk size',
                                     'description': (
                                         f'Data source "{ds_name}" in Knowledge Base "{kb_name}" uses '
                                         f'chunks of {max_tokens} tokens, which is quite large. Large chunks '
@@ -1645,8 +1649,8 @@ class KnowledgeBaseSecurityChecks:
                                     'location': f'Knowledge Base: {kb_name}, Data Source: {ds_name}',
                                     'resource': ds_id,
                                     'remediation': (
-                                        f'Reduce chunk size to 300-512 tokens for better precision:\n'
-                                        f'Update chunking configuration via AWS Bedrock console'
+                                        'Reduce chunk size to 300-512 tokens for better precision:\n'
+                                        'Update chunking configuration via AWS Bedrock console'
                                     ),
                                     'details': {
                                         'knowledge_base_id': kb_id,
@@ -1659,7 +1663,7 @@ class KnowledgeBaseSecurityChecks:
                             if overlap_percentage > 30:
                                 findings.append({
                                     'risk_level': RiskLevel.LOW,
-                                    'title': f'Knowledge Base data source has high chunk overlap',
+                                    'title': 'Knowledge Base data source has high chunk overlap',
                                     'description': (
                                         f'Data source "{ds_name}" in Knowledge Base "{kb_name}" uses '
                                         f'{overlap_percentage}% chunk overlap. High overlap may leak sensitive '
@@ -1668,8 +1672,8 @@ class KnowledgeBaseSecurityChecks:
                                     'location': f'Knowledge Base: {kb_name}, Data Source: {ds_name}',
                                     'resource': ds_id,
                                     'remediation': (
-                                        f'Reduce overlap to 10-20% for balance between context and isolation:\n'
-                                        f'Update chunking configuration via AWS Bedrock console'
+                                        'Reduce overlap to 10-20% for balance between context and isolation:\n'
+                                        'Update chunking configuration via AWS Bedrock console'
                                     ),
                                     'details': {
                                         'knowledge_base_id': kb_id,
@@ -1728,7 +1732,7 @@ class KnowledgeBaseSecurityChecks:
                         if not log_groups:
                             findings.append({
                                 'risk_level': RiskLevel.MEDIUM,
-                                'title': f'Knowledge Base has no CloudWatch logging',
+                                'title': 'Knowledge Base has no CloudWatch logging',
                                 'description': (
                                     f'Knowledge Base "{kb_name}" does not have CloudWatch logging '
                                     f'enabled. Without logging, you cannot audit queries, track usage, '
@@ -1737,9 +1741,9 @@ class KnowledgeBaseSecurityChecks:
                                 'location': f'Knowledge Base: {kb_name}',
                                 'resource': kb_id,
                                 'remediation': (
-                                    f'Enable CloudWatch logging for the knowledge base. '
-                                    f'This is typically configured during knowledge base creation or '
-                                    f'through the AWS Bedrock console under logging settings.'
+                                    'Enable CloudWatch logging for the knowledge base. '
+                                    'This is typically configured during knowledge base creation or '
+                                    'through the AWS Bedrock console under logging settings.'
                                 ),
                                 'details': {
                                     'knowledge_base_id': kb_id,
@@ -1756,7 +1760,7 @@ class KnowledgeBaseSecurityChecks:
                             if not retention_days:
                                 findings.append({
                                     'risk_level': RiskLevel.LOW,
-                                    'title': f'Knowledge Base CloudWatch logs have no retention policy',
+                                    'title': 'Knowledge Base CloudWatch logs have no retention policy',
                                     'description': (
                                         f'Knowledge Base "{kb_name}" has CloudWatch logging but no '
                                         f'retention policy. Logs are kept indefinitely, which may '
@@ -1780,7 +1784,7 @@ class KnowledgeBaseSecurityChecks:
                             if not kms_key_id:
                                 findings.append({
                                     'risk_level': RiskLevel.MEDIUM,
-                                    'title': f'Knowledge Base CloudWatch logs are not encrypted',
+                                    'title': 'Knowledge Base CloudWatch logs are not encrypted',
                                     'description': (
                                         f'Knowledge Base "{kb_name}" logs to CloudWatch but the logs '
                                         f'are not encrypted with a customer-managed KMS key. Query logs '
@@ -1841,7 +1845,7 @@ class KnowledgeBaseSecurityChecks:
                             if not logging_enabled:
                                 findings.append({
                                     'risk_level': RiskLevel.LOW,
-                                    'title': f'Knowledge Base S3 bucket has no access logging',
+                                    'title': 'Knowledge Base S3 bucket has no access logging',
                                     'description': (
                                         f'Knowledge Base "{kb_name}" uses S3 bucket "{bucket_name}" '
                                         f'which does not have access logging enabled. You cannot audit '
@@ -1912,7 +1916,7 @@ class KnowledgeBaseSecurityChecks:
                     if not tags:
                         findings.append({
                             'risk_level': RiskLevel.LOW,
-                            'title': f'Knowledge Base has no tags',
+                            'title': 'Knowledge Base has no tags',
                             'description': (
                                 f'Knowledge Base "{kb_name}" has no tags configured. '
                                 f'Tags are important for resource governance, cost allocation, '
@@ -1939,7 +1943,7 @@ class KnowledgeBaseSecurityChecks:
                         if missing_tags:
                             findings.append({
                                 'risk_level': RiskLevel.LOW,
-                                'title': f'Knowledge Base missing required tags',
+                                'title': 'Knowledge Base missing required tags',
                                 'description': (
                                     f'Knowledge Base "{kb_name}" is missing required tags: '
                                     f'{", ".join(missing_tags)}. These tags are important for '
@@ -2017,7 +2021,7 @@ class KnowledgeBaseSecurityChecks:
                         # This is a custom model - should have restricted access
                         findings.append({
                             'risk_level': RiskLevel.MEDIUM,
-                            'title': f'Knowledge Base uses custom embedding model',
+                            'title': 'Knowledge Base uses custom embedding model',
                             'description': (
                                 f'Knowledge Base "{kb_name}" uses a custom embedding model "{model_id}". '
                                 f'Ensure that access to this model is properly restricted via IAM policies '
@@ -2026,12 +2030,12 @@ class KnowledgeBaseSecurityChecks:
                             'location': f'Knowledge Base: {kb_name}',
                             'resource': embedding_model_arn,
                             'remediation': (
-                                f'Review and restrict IAM policies for the custom model:\n'
-                                f'1. Identify IAM roles/users with bedrock:InvokeModel permission\n'
-                                f'2. Ensure only authorized principals have access\n'
-                                f'3. Use resource-based policies to limit model access:\n'
-                                f'   - Restrict to specific IAM roles\n'
-                                f'   - Limit to specific VPCs if applicable'
+                                'Review and restrict IAM policies for the custom model:\n'
+                                '1. Identify IAM roles/users with bedrock:InvokeModel permission\n'
+                                '2. Ensure only authorized principals have access\n'
+                                '3. Use resource-based policies to limit model access:\n'
+                                '   - Restrict to specific IAM roles\n'
+                                '   - Limit to specific VPCs if applicable'
                             ),
                             'details': {
                                 'knowledge_base_id': kb_id,

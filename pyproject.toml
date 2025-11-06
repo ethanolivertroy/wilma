@@ -69,7 +69,7 @@ dev = [
 
 # Ruff configuration - Fast Python linter
 [tool.ruff]
-line-length = 100
+line-length = 120
 target-version = "py38"
 
 [tool.ruff.lint]
@@ -86,9 +86,13 @@ select = [
     "PT",  # flake8-pytest-style
 ]
 ignore = [
+    "E501",  # Allow lines longer than 120 (many are unavoidable in AWS API calls)
     "S101",  # Allow assert statements in tests
     "S104",  # Allow binding to all interfaces
+    "S106",  # Allow hardcoded password false positives in tests
+    "S107",  # Allow hardcoded password in default function arguments
     "S108",  # Allow hardcoded temp directories
+    "S112",  # Allow try-except-continue (acceptable in check modules)
 ]
 
 [tool.ruff.lint.per-file-ignores]

@@ -15,9 +15,11 @@ Copyright (C) 2024  Ethan Troy
 Licensed under GPL v3
 """
 
-from typing import List, Dict
+from typing import Dict, List
+
 from botocore.exceptions import ClientError
-from wilma.enums import SecurityMode, RiskLevel
+
+from wilma.enums import RiskLevel, SecurityMode
 from wilma.utils import handle_aws_error
 
 

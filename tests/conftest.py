@@ -5,8 +5,10 @@ Copyright (C) 2024  Ethan Troy
 Licensed under GPL v3
 """
 
+from unittest.mock import MagicMock, Mock
+
 import pytest
-from unittest.mock import Mock, MagicMock
+
 from wilma.checker import BedrockSecurityChecker
 from wilma.config import WilmaConfig
 from wilma.enums import SecurityMode

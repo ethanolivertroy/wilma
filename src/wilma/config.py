@@ -10,9 +10,11 @@ the Free Software Foundation, either version 3 of the License, or
 """
 
 import os
-import yaml
-from typing import List, Optional, Dict, Any
 from pathlib import Path
+from typing import Any, List, Optional
+
+import yaml
+
 from wilma.enums import RiskLevel
 
 
@@ -80,7 +82,7 @@ class WilmaConfig:
             file_path: Path to YAML configuration file
         """
         try:
-            with open(file_path, 'r') as f:
+            with open(file_path) as f:
                 user_config = yaml.safe_load(f)
 
             if not user_config:
