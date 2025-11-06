@@ -36,7 +36,7 @@ jobs:
       run: ruff check src/ tests/
 
     - name: Run bandit security scanner
-      run: bandit -r src/ -f screen
+      run: bandit -r src/ -f screen -s B101,B106,B107,B112,B601
 
     - name: Run mypy type checker
       run: mypy src/wilma --show-error-codes

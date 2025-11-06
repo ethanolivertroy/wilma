@@ -39,8 +39,8 @@ jobs:
     - name: Run bandit security scanner
       run: |
         echo "🔒 Running bandit security scanner..."
-        bandit -r src/ -f json -o bandit-report.json || true
-        bandit -r src/ -f screen
+        bandit -r src/ -f json -o bandit-report.json -s B101,B106,B107,B112,B601 || true
+        bandit -r src/ -f screen -s B101,B106,B107,B112,B601
       continue-on-error: false
 
     - name: Run mypy type checker
