@@ -101,7 +101,13 @@ ignore = [
 # Bandit configuration - Security linter
 [tool.bandit]
 exclude_dirs = ["tests", "demos", ".venv", "venv"]
-skips = ["B101", "B601"]  # Skip assert_used and shell injection in specific contexts
+skips = [
+    "B101",  # assert_used (tests need asserts)
+    "B601",  # shell_injection in specific contexts
+    "B106",  # hardcoded_password_funcarg (false positives on AWS pagination tokens)
+    "B107",  # hardcoded_password_default (false positives on AWS pagination defaults)
+    "B112",  # try_except_continue (acceptable pattern in check modules)
+]
 
 # MyPy configuration - Type checking
 [tool.mypy]

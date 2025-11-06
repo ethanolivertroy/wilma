@@ -43,7 +43,13 @@ jobs:
       continue-on-error: true
 
     - name: Run pytest with coverage
-      run: pytest --cov=wilma --cov-report=term-missing --cov-fail-under=80
+      run: |
+        pytest \
+          --cov=wilma \
+          --cov-report=term-missing \
+          --cov-fail-under=80 \
+          -v \
+          -m "not slow"
       env:
         AWS_DEFAULT_REGION: us-east-1
 

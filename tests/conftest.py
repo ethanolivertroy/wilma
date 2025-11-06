@@ -1,147 +1,157 @@
 """
 Pytest configuration and shared fixtures for Wilma tests
 
-Copyright (C) 2024  Ethan Troy
+Uses Moto for realistic AWS service mocking instead of manual MagicMocks.
+Moto provides stateful mocking that mimics actual AWS behavior.
+
+Copyright (C) 2025  Ethan Troy
 Licensed under GPL v3
 """
 
-from unittest.mock import MagicMock, Mock
+import os
 
+import boto3
 import pytest
+from moto import mock_aws
 
 from wilma.checker import BedrockSecurityChecker
 from wilma.config import WilmaConfig
 from wilma.enums import SecurityMode
 
 
-@pytest.fixture
-def mock_boto3_session():
-    """Mock boto3 session for testing."""
-    session = Mock()
-    session.region_name = 'us-east-1'
+@pytest.fixture(scope="function")
+def aws_credentials():
+    """
+    Mock AWS credentials for Moto.
 
-    # Mock clients
-    session.client = Mock(side_effect=lambda service: create_mock_client(service))
+    Sets environment variables that boto3 uses for authentication.
+    These are fake credentials that Moto recognizes.
+    """
+    os.environ["AWS_ACCESS_KEY_ID"] = "testing"
+    os.environ["AWS_SECRET_ACCESS_KEY"] = "testing"
+    os.environ["AWS_SECURITY_TOKEN"] = "testing"
+    os.environ["AWS_SESSION_TOKEN"] = "testing"
+    os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
 
-    return session
+    yield
+
+    # Cleanup after test
+    for key in ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY",
+                "AWS_SECURITY_TOKEN", "AWS_SESSION_TOKEN", "AWS_DEFAULT_REGION"]:
+        os.environ.pop(key, None)
 
 
-def create_mock_client(service_name):
-    """Create a mock AWS service client."""
-    client = MagicMock()
-    client._service_model = MagicMock()
-    client._service_model.service_name = service_name
+@pytest.fixture(scope="function")
+def moto_bedrock(aws_credentials):
+    """
+    Create mocked AWS Bedrock service using Moto.
 
-    # Add service-specific mock responses
-    if service_name == 'bedrock':
-        client.list_foundation_models.return_value = {
-            'modelSummaries': [
-                {
-                    'modelId': 'anthropic.claude-v2',
-                    'modelName': 'Claude v2',
-                    'inputModalities': ['TEXT'],
-                    'outputModalities': ['TEXT']
-                }
-            ]
+    Returns a boto3 client for Bedrock with Moto mocking enabled.
+    All Bedrock API calls will be intercepted and mocked.
+    """
+    with mock_aws():
+        yield boto3.client('bedrock', region_name='us-east-1')
+
+
+@pytest.fixture(scope="function")
+def moto_bedrock_agent(aws_credentials):
+    """
+    Create mocked AWS Bedrock Agent service using Moto.
+
+    Used for knowledge bases, agents, and related operations.
+    """
+    with mock_aws():
+        yield boto3.client('bedrock-agent', region_name='us-east-1')
+
+
+@pytest.fixture(scope="function")
+def moto_iam(aws_credentials):
+    """Create mocked AWS IAM service using Moto."""
+    with mock_aws():
+        yield boto3.client('iam', region_name='us-east-1')
+
+
+@pytest.fixture(scope="function")
+def moto_s3(aws_credentials):
+    """Create mocked AWS S3 service using Moto."""
+    with mock_aws():
+        yield boto3.client('s3', region_name='us-east-1')
+
+
+@pytest.fixture(scope="function")
+def moto_logs(aws_credentials):
+    """Create mocked AWS CloudWatch Logs service using Moto."""
+    with mock_aws():
+        yield boto3.client('logs', region_name='us-east-1')
+
+
+@pytest.fixture(scope="function")
+def moto_ec2(aws_credentials):
+    """Create mocked AWS EC2 service using Moto (for VPC endpoints)."""
+    with mock_aws():
+        yield boto3.client('ec2', region_name='us-east-1')
+
+
+@pytest.fixture(scope="function")
+def mock_all_aws_services(aws_credentials):
+    """
+    Create a mock context with all AWS services available.
+
+    Use this when tests need multiple AWS services.
+    Yields a dict of service_name: client.
+    """
+    with mock_aws():
+        yield {
+            'bedrock': boto3.client('bedrock', region_name='us-east-1'),
+            'bedrock-agent': boto3.client('bedrock-agent', region_name='us-east-1'),
+            'iam': boto3.client('iam', region_name='us-east-1'),
+            's3': boto3.client('s3', region_name='us-east-1'),
+            'logs': boto3.client('logs', region_name='us-east-1'),
+            'ec2': boto3.client('ec2', region_name='us-east-1'),
         }
-        client.list_guardrails.return_value = {'guardrails': []}
-        client.list_custom_models.return_value = {'modelSummaries': []}
-        client.get_model_invocation_logging_configuration.return_value = {'loggingConfig': None}
 
-    elif service_name == 'bedrock-agent':
-        client.list_knowledge_bases.return_value = {'knowledgeBaseSummaries': []}
 
-    elif service_name == 'iam':
-        client.list_policies.return_value = {'Policies': []}
-        client.list_roles.return_value = {'Roles': []}
+@pytest.fixture(scope="function")
+def checker_with_moto(aws_credentials):
+    """
+    Create a BedrockSecurityChecker with Moto-backed AWS clients.
 
-    elif service_name == 's3':
-        client.exceptions = type('Exceptions', (), {
-            'ServerSideEncryptionConfigurationNotFoundError': Exception,
-            'NoSuchPublicAccessBlockConfiguration': Exception
-        })()
-
-    elif service_name == 'ec2':
-        client.describe_vpc_endpoints.return_value = {'VpcEndpoints': []}
-
-    elif service_name == 'logs':
-        client.describe_log_groups.return_value = {'logGroups': []}
-
-    elif service_name == 'ce':
-        client.get_anomaly_monitors.return_value = {'AnomalyMonitors': []}
-
-    elif service_name == 'sts':
-        client.get_caller_identity.return_value = {'Account': '123456789012'}
-
-    return client
+    This is the main fixture for integration tests. The checker will use
+    real boto3 clients that are intercepted by Moto for mocking.
+    """
+    with mock_aws():
+        checker = BedrockSecurityChecker(
+            region='us-east-1',
+            mode=SecurityMode.STANDARD
+        )
+        # Moto automatically mocks all boto3 clients created inside this context
+        yield checker
 
 
 @pytest.fixture
-def mock_config():
-    """Mock Wilma configuration."""
-    config = WilmaConfig()
-    return config
+def wilma_config():
+    """Create a default Wilma configuration for testing."""
+    return WilmaConfig(
+        region='us-east-1',
+        checks_enabled=[
+            'iam',
+            'genai',
+            'network',
+            'logging',
+            'tagging',
+            'knowledge_bases'
+        ],
+        min_risk_level='LOW'
+    )
 
 
+# Legacy fixture name for backwards compatibility during migration
 @pytest.fixture
-def mock_checker(monkeypatch, mock_boto3_session, mock_config):
-    """Mock Bedrock Security Checker with mocked AWS clients."""
-    # Patch boto3.Session to return our mock
-    monkeypatch.setattr('boto3.Session', lambda **kwargs: mock_boto3_session)
+def mock_checker(checker_with_moto):
+    """
+    Alias for checker_with_moto to support existing tests during migration.
 
-    checker = BedrockSecurityChecker(mode=SecurityMode.STANDARD, config=mock_config)
-    return checker
-
-
-@pytest.fixture
-def sample_s3_bucket_arn():
-    """Sample S3 bucket ARN for testing."""
-    return 'arn:aws:s3:::my-knowledge-base-bucket'
-
-
-@pytest.fixture
-def sample_kb_config():
-    """Sample Knowledge Base configuration for testing."""
-    return {
-        'knowledgeBaseId': 'kb-12345',
-        'name': 'Test Knowledge Base',
-        'storageConfiguration': {
-            'type': 'OPENSEARCH_SERVERLESS',
-            'opensearchServerlessConfiguration': {
-                'collectionArn': 'arn:aws:aoss:us-east-1:123456789012:collection/test-collection'
-            }
-        }
-    }
-
-
-@pytest.fixture
-def sample_iam_policy():
-    """Sample IAM policy document for testing."""
-    return {
-        'Version': '2012-10-17',
-        'Statement': [
-            {
-                'Effect': 'Allow',
-                'Action': 'bedrock:*',
-                'Resource': '*'
-            }
-        ]
-    }
-
-
-@pytest.fixture
-def sample_guardrail_config():
-    """Sample guardrail configuration for testing."""
-    return {
-        'guardrailId': 'gr-12345',
-        'name': 'TestGuardrail',
-        'contentPolicy': {
-            'filters': [
-                {
-                    'type': 'PROMPT_ATTACK',
-                    'inputStrength': 'HIGH',
-                    'outputStrength': 'HIGH'
-                }
-            ]
-        }
-    }
+    DEPRECATED: Use checker_with_moto directly in new tests.
+    This alias will be removed after all tests are migrated.
+    """
+    return checker_with_moto
