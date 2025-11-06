@@ -5,7 +5,7 @@ Copyright (C) 2024  Ethan Troy
 Licensed under GPL v3
 """
 
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 from wilma.checks.genai import GenAISecurityChecks
 from wilma.enums import RiskLevel
@@ -183,6 +183,10 @@ class TestDataPrivacyCompliance:
 
     def test_unencrypted_s3_logging(self, mock_checker):
         """Test detection of unencrypted S3 logging."""
+        # Create an unencrypted S3 bucket using Moto
+        mock_checker.s3.create_bucket(Bucket='test-bucket')
+
+        # Configure Bedrock mock to return logging config pointing to this bucket
         mock_checker.bedrock.get_model_invocation_logging_configuration.return_value = {
             'loggingConfig': {
                 's3Config': {
@@ -191,20 +195,39 @@ class TestDataPrivacyCompliance:
             }
         }
 
-        # Mock S3 encryption check to return unencrypted
-        with patch('wilma.checks.genai.check_s3_bucket_encryption') as mock_check:
-            mock_check.return_value = {'encrypted': False}
+        # Run check
+        genai_checks = GenAISecurityChecks(mock_checker)
+        genai_checks.check_data_privacy_compliance()
 
-            # Run check
-            genai_checks = GenAISecurityChecks(mock_checker)
-            genai_checks.check_data_privacy_compliance()
-
-            # Verify HIGH risk finding for unencrypted bucket
-            high_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.HIGH]
-            assert len(high_findings) > 0
+        # Verify HIGH risk finding for unencrypted bucket
+        high_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.HIGH]
+        assert len(high_findings) > 0
 
     def test_encrypted_logging(self, mock_checker):
         """Test that encrypted logging passes validation."""
+        # Create encrypted S3 bucket using Moto
+        mock_checker.s3.create_bucket(Bucket='test-bucket')
+        mock_checker.s3.put_bucket_encryption(
+            Bucket='test-bucket',
+            ServerSideEncryptionConfiguration={
+                'Rules': [
+                    {
+                        'ApplyServerSideEncryptionByDefault': {
+                            'SSEAlgorithm': 'aws:kms',
+                            'KMSMasterKeyID': 'arn:aws:kms:us-east-1:123456789012:key/12345678-1234-1234-1234-123456789012'
+                        }
+                    }
+                ]
+            }
+        )
+
+        # Create encrypted CloudWatch log group using Moto
+        mock_checker.cloudwatch.create_log_group(
+            logGroupName='/aws/bedrock/test',
+            kmsKeyId='arn:aws:kms:us-east-1:123456789012:key/12345678-1234-1234-1234-123456789012'
+        )
+
+        # Configure Bedrock mock to return logging config
         mock_checker.bedrock.get_model_invocation_logging_configuration.return_value = {
             'loggingConfig': {
                 's3Config': {
@@ -216,16 +239,10 @@ class TestDataPrivacyCompliance:
             }
         }
 
-        # Mock encryption checks to return encrypted
-        with patch('wilma.checks.genai.check_s3_bucket_encryption') as mock_s3, \
-             patch('wilma.checks.genai.check_log_group_encryption') as mock_cw:
-            mock_s3.return_value = {'encrypted': True, 'uses_customer_key': True}
-            mock_cw.return_value = {'exists': True, 'encrypted': True}
+        # Run check
+        genai_checks = GenAISecurityChecks(mock_checker)
+        genai_checks.check_data_privacy_compliance()
 
-            # Run check
-            genai_checks = GenAISecurityChecks(mock_checker)
-            genai_checks.check_data_privacy_compliance()
-
-            # Should only have INFO level findings (best practice guidance)
-            high_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.HIGH]
-            assert len(high_findings) == 0
+        # Should only have INFO level findings (best practice guidance)
+        high_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.HIGH]
+        assert len(high_findings) == 0

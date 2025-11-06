@@ -5,6 +5,8 @@ Copyright (C) 2024  Ethan Troy
 Licensed under GPL v3
 """
 
+import json
+
 from wilma.checks.iam import IAMSecurityChecks
 from wilma.enums import RiskLevel
 
@@ -14,30 +16,22 @@ class TestOverlyPermissivePolicies:
 
     def test_wildcard_permissions_detected(self, mock_checker):
         """Test detection of wildcard Bedrock permissions."""
-        # Setup mock responses
-        mock_checker.iam.list_policies.return_value = {
-            'Policies': [
+        # Create an overly permissive IAM policy using Moto
+        policy_document = {
+            'Version': '2012-10-17',
+            'Statement': [
                 {
-                    'PolicyName': 'BedrockFullAccess',
-                    'Arn': 'arn:aws:iam::123456789012:policy/BedrockFullAccess',
-                    'DefaultVersionId': 'v1'
+                    'Effect': 'Allow',
+                    'Action': 'bedrock:*',
+                    'Resource': '*'
                 }
             ]
         }
-        mock_checker.iam.get_policy_version.return_value = {
-            'PolicyVersion': {
-                'Document': {
-                    'Version': '2012-10-17',
-                    'Statement': [
-                        {
-                            'Effect': 'Allow',
-                            'Action': 'bedrock:*',
-                            'Resource': '*'
-                        }
-                    ]
-                }
-            }
-        }
+
+        mock_checker.iam.create_policy(
+            PolicyName='BedrockFullAccess',
+            PolicyDocument=json.dumps(policy_document)
+        )
 
         # Run check
         iam_checks = IAMSecurityChecks(mock_checker)
@@ -49,30 +43,22 @@ class TestOverlyPermissivePolicies:
 
     def test_least_privilege_policy(self, mock_checker):
         """Test that least-privilege policies pass validation."""
-        # Setup mock responses
-        mock_checker.iam.list_policies.return_value = {
-            'Policies': [
+        # Create a least-privilege IAM policy using Moto
+        policy_document = {
+            'Version': '2012-10-17',
+            'Statement': [
                 {
-                    'PolicyName': 'BedrockReadOnly',
-                    'Arn': 'arn:aws:iam::123456789012:policy/BedrockReadOnly',
-                    'DefaultVersionId': 'v1'
+                    'Effect': 'Allow',
+                    'Action': ['bedrock:GetFoundationModel', 'bedrock:ListFoundationModels'],
+                    'Resource': 'arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-v2'
                 }
             ]
         }
-        mock_checker.iam.get_policy_version.return_value = {
-            'PolicyVersion': {
-                'Document': {
-                    'Version': '2012-10-17',
-                    'Statement': [
-                        {
-                            'Effect': 'Allow',
-                            'Action': ['bedrock:GetFoundationModel', 'bedrock:ListFoundationModels'],
-                            'Resource': 'arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-v2'
-                        }
-                    ]
-                }
-            }
-        }
+
+        mock_checker.iam.create_policy(
+            PolicyName='BedrockReadOnly',
+            PolicyDocument=json.dumps(policy_document)
+        )
 
         # Run check
         iam_checks = IAMSecurityChecks(mock_checker)
@@ -88,23 +74,25 @@ class TestAWSManagedPolicies:
 
     def test_administrator_access_detected(self, mock_checker):
         """Test detection of AdministratorAccess policy."""
-        # Setup mock responses
-        mock_checker.iam.list_roles.return_value = {
-            'Roles': [
-                {
-                    'RoleName': 'BedrockExecutionRole',
-                    'Arn': 'arn:aws:iam::123456789012:role/BedrockExecutionRole'
-                }
-            ]
+        # Create IAM role and attach AdministratorAccess using Moto
+        trust_policy = {
+            'Version': '2012-10-17',
+            'Statement': [{
+                'Effect': 'Allow',
+                'Principal': {'Service': 'bedrock.amazonaws.com'},
+                'Action': 'sts:AssumeRole'
+            }]
         }
-        mock_checker.iam.list_attached_role_policies.return_value = {
-            'AttachedPolicies': [
-                {
-                    'PolicyName': 'AdministratorAccess',
-                    'PolicyArn': 'arn:aws:iam::aws:policy/AdministratorAccess'
-                }
-            ]
-        }
+
+        mock_checker.iam.create_role(
+            RoleName='BedrockExecutionRole',
+            AssumeRolePolicyDocument=json.dumps(trust_policy)
+        )
+
+        mock_checker.iam.attach_role_policy(
+            RoleName='BedrockExecutionRole',
+            PolicyArn='arn:aws:iam::aws:policy/AdministratorAccess'
+        )
 
         # Run check
         iam_checks = IAMSecurityChecks(mock_checker)
@@ -117,23 +105,25 @@ class TestAWSManagedPolicies:
 
     def test_power_user_access_detected(self, mock_checker):
         """Test detection of PowerUserAccess policy."""
-        # Setup mock responses
-        mock_checker.iam.list_roles.return_value = {
-            'Roles': [
-                {
-                    'RoleName': 'BedrockRole',
-                    'Arn': 'arn:aws:iam::123456789012:role/BedrockRole'
-                }
-            ]
+        # Create IAM role and attach PowerUserAccess using Moto
+        trust_policy = {
+            'Version': '2012-10-17',
+            'Statement': [{
+                'Effect': 'Allow',
+                'Principal': {'Service': 'bedrock.amazonaws.com'},
+                'Action': 'sts:AssumeRole'
+            }]
         }
-        mock_checker.iam.list_attached_role_policies.return_value = {
-            'AttachedPolicies': [
-                {
-                    'PolicyName': 'PowerUserAccess',
-                    'PolicyArn': 'arn:aws:iam::aws:policy/PowerUserAccess'
-                }
-            ]
-        }
+
+        mock_checker.iam.create_role(
+            RoleName='BedrockRole',
+            AssumeRolePolicyDocument=json.dumps(trust_policy)
+        )
+
+        mock_checker.iam.attach_role_policy(
+            RoleName='BedrockRole',
+            PolicyArn='arn:aws:iam::aws:policy/PowerUserAccess'
+        )
 
         # Run check
         iam_checks = IAMSecurityChecks(mock_checker)
@@ -149,27 +139,20 @@ class TestCrossAccountAccess:
 
     def test_external_account_access_detected(self, mock_checker):
         """Test detection of cross-account trust relationships."""
-        # Setup mock responses
-        mock_checker.iam.list_roles.return_value = {
-            'Roles': [
-                {
-                    'RoleName': 'BedrockRole',
-                    'Arn': 'arn:aws:iam::123456789012:role/BedrockRole',
-                    'AssumeRolePolicyDocument': {
-                        'Version': '2012-10-17',
-                        'Statement': [
-                            {
-                                'Effect': 'Allow',
-                                'Principal': {
-                                    'AWS': 'arn:aws:iam::999999999999:root'
-                                },
-                                'Action': 'sts:AssumeRole'
-                            }
-                        ]
-                    }
-                }
-            ]
+        # Create IAM role with cross-account trust policy using Moto
+        trust_policy = {
+            'Version': '2012-10-17',
+            'Statement': [{
+                'Effect': 'Allow',
+                'Principal': {'AWS': 'arn:aws:iam::999999999999:root'},
+                'Action': 'sts:AssumeRole'
+            }]
         }
+
+        mock_checker.iam.create_role(
+            RoleName='BedrockRole',
+            AssumeRolePolicyDocument=json.dumps(trust_policy)
+        )
 
         # Run check
         iam_checks = IAMSecurityChecks(mock_checker)
@@ -181,27 +164,20 @@ class TestCrossAccountAccess:
 
     def test_same_account_access_allowed(self, mock_checker):
         """Test that same-account access passes validation."""
-        # Setup mock responses
-        mock_checker.iam.list_roles.return_value = {
-            'Roles': [
-                {
-                    'RoleName': 'BedrockRole',
-                    'Arn': 'arn:aws:iam::123456789012:role/BedrockRole',
-                    'AssumeRolePolicyDocument': {
-                        'Version': '2012-10-17',
-                        'Statement': [
-                            {
-                                'Effect': 'Allow',
-                                'Principal': {
-                                    'Service': 'bedrock.amazonaws.com'
-                                },
-                                'Action': 'sts:AssumeRole'
-                            }
-                        ]
-                    }
-                }
-            ]
+        # Create IAM role with service principal trust policy using Moto
+        trust_policy = {
+            'Version': '2012-10-17',
+            'Statement': [{
+                'Effect': 'Allow',
+                'Principal': {'Service': 'bedrock.amazonaws.com'},
+                'Action': 'sts:AssumeRole'
+            }]
         }
+
+        mock_checker.iam.create_role(
+            RoleName='BedrockRole',
+            AssumeRolePolicyDocument=json.dumps(trust_policy)
+        )
 
         # Run check
         iam_checks = IAMSecurityChecks(mock_checker)
@@ -217,16 +193,21 @@ class TestRoleSessionDuration:
 
     def test_excessive_session_duration(self, mock_checker):
         """Test detection of excessive session duration."""
-        # Setup mock responses
-        mock_checker.iam.list_roles.return_value = {
-            'Roles': [
-                {
-                    'RoleName': 'BedrockRole',
-                    'Arn': 'arn:aws:iam::123456789012:role/BedrockRole',
-                    'MaxSessionDuration': 43200  # 12 hours
-                }
-            ]
+        # Create IAM role with excessive session duration using Moto
+        trust_policy = {
+            'Version': '2012-10-17',
+            'Statement': [{
+                'Effect': 'Allow',
+                'Principal': {'Service': 'bedrock.amazonaws.com'},
+                'Action': 'sts:AssumeRole'
+            }]
         }
+
+        mock_checker.iam.create_role(
+            RoleName='BedrockRole',
+            AssumeRolePolicyDocument=json.dumps(trust_policy),
+            MaxSessionDuration=43200  # 12 hours
+        )
 
         # Run check
         iam_checks = IAMSecurityChecks(mock_checker)
@@ -238,16 +219,21 @@ class TestRoleSessionDuration:
 
     def test_acceptable_session_duration(self, mock_checker):
         """Test that short session durations pass validation."""
-        # Setup mock responses
-        mock_checker.iam.list_roles.return_value = {
-            'Roles': [
-                {
-                    'RoleName': 'BedrockRole',
-                    'Arn': 'arn:aws:iam::123456789012:role/BedrockRole',
-                    'MaxSessionDuration': 3600  # 1 hour
-                }
-            ]
+        # Create IAM role with acceptable session duration using Moto
+        trust_policy = {
+            'Version': '2012-10-17',
+            'Statement': [{
+                'Effect': 'Allow',
+                'Principal': {'Service': 'bedrock.amazonaws.com'},
+                'Action': 'sts:AssumeRole'
+            }]
         }
+
+        mock_checker.iam.create_role(
+            RoleName='BedrockRole',
+            AssumeRolePolicyDocument=json.dumps(trust_policy),
+            MaxSessionDuration=3600  # 1 hour
+        )
 
         # Run check
         iam_checks = IAMSecurityChecks(mock_checker)
