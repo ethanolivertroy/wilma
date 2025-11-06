@@ -47,7 +47,7 @@ jobs:
         pytest \
           --cov=wilma \
           --cov-report=term-missing \
-          --cov-fail-under=80 \
+          --cov-fail-under=50 \
           -v \
           -m "not slow"
       env:

@@ -1,14 +1,16 @@
 """
 Pytest configuration and shared fixtures for Wilma tests
 
-Uses Moto for realistic AWS service mocking instead of manual MagicMocks.
-Moto provides stateful mocking that mimics actual AWS behavior.
+Hybrid approach:
+- Uses Moto for S3, IAM, EC2, CloudWatch Logs (fully supported)
+- Uses MagicMock for Bedrock services (incomplete Moto support)
 
 Copyright (C) 2025  Ethan Troy
 Licensed under GPL v3
 """
 
 import os
+from unittest.mock import MagicMock
 
 import boto3
 import pytest
@@ -22,10 +24,9 @@ from wilma.enums import SecurityMode
 @pytest.fixture
 def aws_credentials():
     """
-    Mock AWS credentials for Moto.
+    Mock AWS credentials for boto3.
 
     Sets environment variables that boto3 uses for authentication.
-    These are fake credentials that Moto recognizes.
     """
     os.environ["AWS_ACCESS_KEY_ID"] = "testing"
     os.environ["AWS_SECRET_ACCESS_KEY"] = "testing"
@@ -41,28 +42,61 @@ def aws_credentials():
         os.environ.pop(key, None)
 
 
-@pytest.fixture
-def moto_bedrock(aws_credentials):
-    """
-    Create mocked AWS Bedrock service using Moto.
-
-    Returns a boto3 client for Bedrock with Moto mocking enabled.
-    All Bedrock API calls will be intercepted and mocked.
-    """
-    with mock_aws():
-        yield boto3.client('bedrock', region_name='us-east-1')
-
+# ============================================================================
+# MagicMock Fixtures for Bedrock (Moto has incomplete support)
+# ============================================================================
 
 @pytest.fixture
-def moto_bedrock_agent(aws_credentials):
+def mock_bedrock_client():
     """
-    Create mocked AWS Bedrock Agent service using Moto.
+    Create a MagicMock for AWS Bedrock client.
 
-    Used for knowledge bases, agents, and related operations.
+    Bedrock has incomplete Moto support, so we use MagicMock.
+    Configure return values as needed in your tests.
     """
-    with mock_aws():
-        yield boto3.client('bedrock-agent', region_name='us-east-1')
+    mock_client = MagicMock()
 
+    # Default responses
+    mock_client.list_foundation_models.return_value = {
+        'modelSummaries': []
+    }
+    mock_client.get_model_invocation_logging_configuration.return_value = {
+        'loggingConfig': {}
+    }
+    mock_client.list_custom_models.return_value = {
+        'modelSummaries': []
+    }
+    mock_client.list_guardrails.return_value = {
+        'guardrails': []
+    }
+
+    return mock_client
+
+
+@pytest.fixture
+def mock_bedrock_agent_client():
+    """
+    Create a MagicMock for AWS Bedrock Agent client.
+
+    Bedrock Agent has incomplete Moto support, so we use MagicMock.
+    Configure return values as needed in your tests.
+    """
+    mock_client = MagicMock()
+
+    # Default responses
+    mock_client.list_knowledge_bases.return_value = {
+        'knowledgeBaseSummaries': []
+    }
+    mock_client.list_agents.return_value = {
+        'agentSummaries': []
+    }
+
+    return mock_client
+
+
+# ============================================================================
+# Moto Fixtures for fully-supported services
+# ============================================================================
 
 @pytest.fixture
 def moto_iam(aws_credentials):
@@ -92,41 +126,50 @@ def moto_ec2(aws_credentials):
         yield boto3.client('ec2', region_name='us-east-1')
 
 
-@pytest.fixture
-def mock_all_aws_services(aws_credentials):
-    """
-    Create a mock context with all AWS services available.
-
-    Use this when tests need multiple AWS services.
-    Yields a dict of service_name: client.
-    """
-    with mock_aws():
-        yield {
-            'bedrock': boto3.client('bedrock', region_name='us-east-1'),
-            'bedrock-agent': boto3.client('bedrock-agent', region_name='us-east-1'),
-            'iam': boto3.client('iam', region_name='us-east-1'),
-            's3': boto3.client('s3', region_name='us-east-1'),
-            'logs': boto3.client('logs', region_name='us-east-1'),
-            'ec2': boto3.client('ec2', region_name='us-east-1'),
-        }
-
+# ============================================================================
+# Hybrid Checker Fixture (MagicMock Bedrock + Moto for other services)
+# ============================================================================
 
 @pytest.fixture
-def checker_with_moto(aws_credentials):
+def mock_checker(aws_credentials, mock_bedrock_client, mock_bedrock_agent_client):
     """
-    Create a BedrockSecurityChecker with Moto-backed AWS clients.
+    Create a BedrockSecurityChecker with hybrid mocking.
 
-    This is the main fixture for integration tests. The checker will use
-    real boto3 clients that are intercepted by Moto for mocking.
+    - Bedrock clients use MagicMock (incomplete Moto support)
+    - S3, IAM, EC2, Logs use Moto (full support)
+
+    This is the main fixture for integration tests.
     """
     with mock_aws():
+        # Create checker
         checker = BedrockSecurityChecker(
             region='us-east-1',
             mode=SecurityMode.STANDARD
         )
-        # Moto automatically mocks all boto3 clients created inside this context
+
+        # Replace Bedrock clients with MagicMocks
+        checker.bedrock = mock_bedrock_client
+        checker.bedrock_agent = mock_bedrock_agent_client
+
+        # S3, IAM, EC2, Logs clients will use Moto automatically
+        # since they were created inside mock_aws() context
+
         yield checker
 
+
+@pytest.fixture
+def checker_with_moto(mock_checker):
+    """
+    Alias for mock_checker for backwards compatibility.
+
+    Both names refer to the same hybrid fixture.
+    """
+    return mock_checker
+
+
+# ============================================================================
+# Configuration Fixtures
+# ============================================================================
 
 @pytest.fixture
 def wilma_config():
@@ -145,13 +188,123 @@ def wilma_config():
     )
 
 
-# Legacy fixture name for backwards compatibility during migration
-@pytest.fixture
-def mock_checker(checker_with_moto):
-    """
-    Alias for checker_with_moto to support existing tests during migration.
+# ============================================================================
+# Helper functions for setting up common Bedrock mock responses
+# ============================================================================
 
-    DEPRECATED: Use checker_with_moto directly in new tests.
-    This alias will be removed after all tests are migrated.
+def setup_guardrail_mock(mock_client, guardrail_id='test-guardrail',
+                         has_prompt_filter=True, filter_strength='HIGH'):
     """
-    return checker_with_moto
+    Helper to configure a Bedrock client mock with guardrail responses.
+
+    Args:
+        mock_client: The MagicMock Bedrock client
+        guardrail_id: Guardrail ID to return
+        has_prompt_filter: Whether guardrail has prompt attack filter
+        filter_strength: Filter strength (HIGH, MEDIUM, LOW, NONE)
+    """
+    # List guardrails response
+    mock_client.list_guardrails.return_value = {
+        'guardrails': [
+            {
+                'id': guardrail_id,
+                'arn': f'arn:aws:bedrock:us-east-1:123456789012:guardrail/{guardrail_id}',
+                'name': 'Test Guardrail',
+                'status': 'READY'
+            }
+        ]
+    }
+
+    # Get guardrail details response
+    content_policy_config = {}
+    if has_prompt_filter:
+        content_policy_config['filtersConfig'] = [
+            {
+                'type': 'PROMPT_ATTACK',
+                'inputStrength': filter_strength,
+                'outputStrength': filter_strength
+            }
+        ]
+
+    mock_client.get_guardrail.return_value = {
+        'guardrailId': guardrail_id,
+        'name': 'Test Guardrail',
+        'status': 'READY',
+        'contentPolicyConfig': content_policy_config
+    }
+
+
+def setup_model_logging_mock(mock_client, s3_enabled=False, cloudwatch_enabled=False,
+                             s3_bucket=None, log_group_name=None):
+    """
+    Helper to configure Bedrock client mock with logging configuration.
+
+    Args:
+        mock_client: The MagicMock Bedrock client
+        s3_enabled: Whether S3 logging is enabled
+        cloudwatch_enabled: Whether CloudWatch logging is enabled
+        s3_bucket: S3 bucket name for logs
+        log_group_name: CloudWatch log group name
+    """
+    logging_config = {}
+
+    if s3_enabled and s3_bucket:
+        logging_config['s3Config'] = {
+            'bucketName': s3_bucket
+        }
+
+    if cloudwatch_enabled and log_group_name:
+        logging_config['cloudWatchConfig'] = {
+            'logGroupName': log_group_name,
+            'roleArn': 'arn:aws:iam::123456789012:role/BedrockLoggingRole'
+        }
+
+    mock_client.get_model_invocation_logging_configuration.return_value = {
+        'loggingConfig': logging_config
+    }
+
+
+def setup_knowledge_base_mock(mock_client, kb_id='test-kb', kb_name='Test KB',
+                              storage_config=None, role_arn=None):
+    """
+    Helper to configure Bedrock Agent client mock with knowledge base.
+
+    Args:
+        mock_client: The MagicMock Bedrock Agent client
+        kb_id: Knowledge base ID
+        kb_name: Knowledge base name
+        storage_config: Storage configuration dict
+        role_arn: IAM role ARN
+    """
+    if storage_config is None:
+        storage_config = {
+            'type': 'OPENSEARCH_SERVERLESS',
+            'opensearchServerlessConfiguration': {
+                'collectionArn': 'arn:aws:aoss:us-east-1:123456789012:collection/test-collection'
+            }
+        }
+
+    if role_arn is None:
+        role_arn = 'arn:aws:iam::123456789012:role/KnowledgeBaseRole'
+
+    # List knowledge bases response
+    mock_client.list_knowledge_bases.return_value = {
+        'knowledgeBaseSummaries': [
+            {
+                'knowledgeBaseId': kb_id,
+                'name': kb_name,
+                'status': 'ACTIVE'
+            }
+        ]
+    }
+
+    # Get knowledge base details
+    mock_client.get_knowledge_base.return_value = {
+        'knowledgeBase': {
+            'knowledgeBaseId': kb_id,
+            'name': kb_name,
+            'roleArn': role_arn,
+            'status': 'ACTIVE',
+            'storageConfiguration': storage_config
+        }
+    }
