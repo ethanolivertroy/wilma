@@ -19,7 +19,7 @@ from wilma.config import WilmaConfig
 from wilma.enums import SecurityMode
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def aws_credentials():
     """
     Mock AWS credentials for Moto.
@@ -41,7 +41,7 @@ def aws_credentials():
         os.environ.pop(key, None)
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def moto_bedrock(aws_credentials):
     """
     Create mocked AWS Bedrock service using Moto.
@@ -53,7 +53,7 @@ def moto_bedrock(aws_credentials):
         yield boto3.client('bedrock', region_name='us-east-1')
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def moto_bedrock_agent(aws_credentials):
     """
     Create mocked AWS Bedrock Agent service using Moto.
@@ -64,35 +64,35 @@ def moto_bedrock_agent(aws_credentials):
         yield boto3.client('bedrock-agent', region_name='us-east-1')
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def moto_iam(aws_credentials):
     """Create mocked AWS IAM service using Moto."""
     with mock_aws():
         yield boto3.client('iam', region_name='us-east-1')
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def moto_s3(aws_credentials):
     """Create mocked AWS S3 service using Moto."""
     with mock_aws():
         yield boto3.client('s3', region_name='us-east-1')
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def moto_logs(aws_credentials):
     """Create mocked AWS CloudWatch Logs service using Moto."""
     with mock_aws():
         yield boto3.client('logs', region_name='us-east-1')
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def moto_ec2(aws_credentials):
     """Create mocked AWS EC2 service using Moto (for VPC endpoints)."""
     with mock_aws():
         yield boto3.client('ec2', region_name='us-east-1')
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def mock_all_aws_services(aws_credentials):
     """
     Create a mock context with all AWS services available.
@@ -111,7 +111,7 @@ def mock_all_aws_services(aws_credentials):
         }
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def checker_with_moto(aws_credentials):
     """
     Create a BedrockSecurityChecker with Moto-backed AWS clients.

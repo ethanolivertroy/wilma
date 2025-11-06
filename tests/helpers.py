@@ -5,7 +5,7 @@ Provides utilities for asserting findings, filtering results, and
 common test patterns.
 """
 
-from typing import Dict, List, Any, Optional
+from typing import Any, Dict, List, Optional
 
 from wilma.enums import RiskLevel
 
@@ -161,8 +161,8 @@ def assert_finding_has_remediation(finding: Dict[str, Any]):
         finding = assert_finding_exists(findings, RiskLevel.HIGH)
         assert_finding_has_remediation(finding)
     """
-    assert 'recommendation' in finding and finding['recommendation'], \
-        "Finding missing recommendation"
+    assert 'recommendation' in finding, "Finding missing recommendation key"
+    assert finding['recommendation'], "Finding has empty recommendation"
     assert 'fix_command' in finding or 'learn_more' in finding, \
         "Finding missing remediation guidance"
 
