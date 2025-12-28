@@ -134,16 +134,23 @@ This document tracks the implementation status of all security features from the
     - Testing: ⏳ Unit tests needed
 
 12. **Embedding Model Access Control** - Risk 6/10
-    - Status: ✅ COMPLETED (Basic implementation)
-    - Implementation: `check_embedding_model_access()` lines 1975-2053
+    - Status: ✅ COMPLETED (Enhanced with deep IAM analysis)
+    - Implementation: `check_embedding_model_access()` lines 1975-2058
     - Features:
-      - Detects custom embedding model usage
-      - Creates MEDIUM findings suggesting manual IAM review
+      - **ENHANCED**: Deep IAM policy analysis for ALL models (foundation + custom)
+      - Detects AdministratorAccess/PowerUserAccess on KB execution roles (HIGH risk)
+      - Detects wildcard bedrock:InvokeModel on Resource:* (HIGH risk)
+      - Detects custom embedding model usage (MEDIUM risk)
       - Deduplicates checks across KBs using checked_models set
-      - Foundation models (amazon.*, cohere.*, etc.) are excluded
+      - Foundation models analyzed for IAM issues, excluded from custom model warnings
       - Integrated in run_all_checks() at line 2091
-    - Testing: ⏳ Unit tests needed
-    - Enhancement Opportunity: Could add deep IAM policy analysis (detect AdministratorAccess, wildcard Resource:*)
+    - IAM Analysis Method: `_analyze_iam_policies_for_embedding_model()` lines 2055-2204
+      - Analyzes attached managed policies
+      - Analyzes inline policies for wildcard permissions
+      - Provides specific remediation guidance
+    - Testing: ✅ 7 comprehensive unit tests
+      - 3 tests for basic embedding model detection
+      - 4 tests for IAM policy analysis (AdministratorAccess, PowerUserAccess, wildcards, least-privilege)
 
 ---
 

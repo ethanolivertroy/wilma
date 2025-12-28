@@ -940,3 +940,272 @@ class TestKBEmbeddingModelAccess:
         # Verify only ONE finding despite two KBs using same model
         medium_findings = [f for f in findings if f.get('risk_level') == RiskLevel.MEDIUM]
         assert len(medium_findings) == 1
+
+
+class TestKBEmbeddingModelIAMAnalysis:
+    """Test Knowledge Base embedding model IAM policy analysis."""
+
+    def test_detect_administrator_access_policy(self, mock_checker):
+        """Detect AdministratorAccess attached to KB role."""
+        # Create IAM role with AdministratorAccess
+        trust_policy = {
+            'Version': '2012-10-17',
+            'Statement': [{
+                'Effect': 'Allow',
+                'Principal': {'Service': 'bedrock.amazonaws.com'},
+                'Action': 'sts:AssumeRole'
+            }]
+        }
+
+        role_response = mock_checker.iam.create_role(
+            RoleName='KBRole',
+            AssumeRolePolicyDocument=json.dumps(trust_policy)
+        )
+
+        # Create and attach AdministratorAccess policy
+        admin_policy = {
+            'Version': '2012-10-17',
+            'Statement': [{
+                'Effect': 'Allow',
+                'Action': '*',
+                'Resource': '*'
+            }]
+        }
+
+        policy_response = mock_checker.iam.create_policy(
+            PolicyName='AdministratorAccess',
+            PolicyDocument=json.dumps(admin_policy)
+        )
+
+        mock_checker.iam.attach_role_policy(
+            RoleName='KBRole',
+            PolicyArn=policy_response['Policy']['Arn']
+        )
+
+        # Configure KB with foundation model (to test IAM analysis on all models)
+        setup_knowledge_base_mock(
+            mock_checker.bedrock_agent,
+            kb_id='kb-123',
+            kb_name='TestKB',
+            role_arn=role_response['Role']['Arn']
+        )
+
+        mock_checker.bedrock_agent.get_knowledge_base.return_value = {
+            'knowledgeBase': {
+                'knowledgeBaseId': 'kb-123',
+                'name': 'TestKB',
+                'roleArn': role_response['Role']['Arn'],
+                'knowledgeBaseConfiguration': {
+                    'vectorKnowledgeBaseConfiguration': {
+                        'embeddingModelArn': 'arn:aws:bedrock:us-east-1::foundation-model/amazon.titan-embed-text-v1'
+                    }
+                }
+            }
+        }
+
+        # Run check
+        kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
+        kb_checks.bedrock_agent = mock_checker.bedrock_agent
+        findings = kb_checks.check_embedding_model_access()
+
+        # Verify HIGH finding for AdministratorAccess
+        high_findings = [f for f in findings if f.get('risk_level') == RiskLevel.HIGH]
+        assert len(high_findings) > 0
+        assert 'AdministratorAccess' in high_findings[0]['title']
+
+    def test_detect_power_user_access_policy(self, mock_checker):
+        """Detect PowerUserAccess attached to KB role."""
+        # Create IAM role with PowerUserAccess
+        trust_policy = {
+            'Version': '2012-10-17',
+            'Statement': [{
+                'Effect': 'Allow',
+                'Principal': {'Service': 'bedrock.amazonaws.com'},
+                'Action': 'sts:AssumeRole'
+            }]
+        }
+
+        role_response = mock_checker.iam.create_role(
+            RoleName='KBRole',
+            AssumeRolePolicyDocument=json.dumps(trust_policy)
+        )
+
+        # Create and attach PowerUserAccess policy
+        power_user_policy = {
+            'Version': '2012-10-17',
+            'Statement': [{
+                'Effect': 'Allow',
+                'NotAction': 'iam:*',
+                'Resource': '*'
+            }]
+        }
+
+        policy_response = mock_checker.iam.create_policy(
+            PolicyName='PowerUserAccess',
+            PolicyDocument=json.dumps(power_user_policy)
+        )
+
+        mock_checker.iam.attach_role_policy(
+            RoleName='KBRole',
+            PolicyArn=policy_response['Policy']['Arn']
+        )
+
+        # Configure KB
+        setup_knowledge_base_mock(
+            mock_checker.bedrock_agent,
+            kb_id='kb-123',
+            kb_name='TestKB',
+            role_arn=role_response['Role']['Arn']
+        )
+
+        mock_checker.bedrock_agent.get_knowledge_base.return_value = {
+            'knowledgeBase': {
+                'knowledgeBaseId': 'kb-123',
+                'name': 'TestKB',
+                'roleArn': role_response['Role']['Arn'],
+                'knowledgeBaseConfiguration': {
+                    'vectorKnowledgeBaseConfiguration': {
+                        'embeddingModelArn': 'arn:aws:bedrock:us-east-1::foundation-model/amazon.titan-embed-text-v1'
+                    }
+                }
+            }
+        }
+
+        # Run check
+        kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
+        kb_checks.bedrock_agent = mock_checker.bedrock_agent
+        findings = kb_checks.check_embedding_model_access()
+
+        # Verify HIGH finding for PowerUserAccess
+        high_findings = [f for f in findings if f.get('risk_level') == RiskLevel.HIGH]
+        assert len(high_findings) > 0
+        assert 'PowerUserAccess' in high_findings[0]['title']
+
+    def test_detect_wildcard_invoke_model(self, mock_checker):
+        """Detect bedrock:InvokeModel on Resource:*."""
+        # Create IAM role with wildcard InvokeModel permission
+        trust_policy = {
+            'Version': '2012-10-17',
+            'Statement': [{
+                'Effect': 'Allow',
+                'Principal': {'Service': 'bedrock.amazonaws.com'},
+                'Action': 'sts:AssumeRole'
+            }]
+        }
+
+        role_response = mock_checker.iam.create_role(
+            RoleName='KBRole',
+            AssumeRolePolicyDocument=json.dumps(trust_policy)
+        )
+
+        # Add inline policy with wildcard resource
+        wildcard_policy = {
+            'Version': '2012-10-17',
+            'Statement': [{
+                'Effect': 'Allow',
+                'Action': 'bedrock:InvokeModel',
+                'Resource': '*'
+            }]
+        }
+
+        mock_checker.iam.put_role_policy(
+            RoleName='KBRole',
+            PolicyName='WildcardInvokePolicy',
+            PolicyDocument=json.dumps(wildcard_policy)
+        )
+
+        # Configure KB
+        setup_knowledge_base_mock(
+            mock_checker.bedrock_agent,
+            kb_id='kb-123',
+            kb_name='TestKB',
+            role_arn=role_response['Role']['Arn']
+        )
+
+        mock_checker.bedrock_agent.get_knowledge_base.return_value = {
+            'knowledgeBase': {
+                'knowledgeBaseId': 'kb-123',
+                'name': 'TestKB',
+                'roleArn': role_response['Role']['Arn'],
+                'knowledgeBaseConfiguration': {
+                    'vectorKnowledgeBaseConfiguration': {
+                        'embeddingModelArn': 'arn:aws:bedrock:us-east-1::foundation-model/amazon.titan-embed-text-v1'
+                    }
+                }
+            }
+        }
+
+        # Run check
+        kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
+        kb_checks.bedrock_agent = mock_checker.bedrock_agent
+        findings = kb_checks.check_embedding_model_access()
+
+        # Verify HIGH finding for wildcard resource
+        high_findings = [f for f in findings if f.get('risk_level') == RiskLevel.HIGH]
+        assert len(high_findings) > 0
+        assert 'can invoke ANY Bedrock model' in high_findings[0]['title']
+
+    def test_least_privilege_role_no_finding(self, mock_checker):
+        """Properly scoped role shouldn't trigger IAM findings."""
+        # Create IAM role with least-privilege policy
+        trust_policy = {
+            'Version': '2012-10-17',
+            'Statement': [{
+                'Effect': 'Allow',
+                'Principal': {'Service': 'bedrock.amazonaws.com'},
+                'Action': 'sts:AssumeRole'
+            }]
+        }
+
+        role_response = mock_checker.iam.create_role(
+            RoleName='KBRole',
+            AssumeRolePolicyDocument=json.dumps(trust_policy)
+        )
+
+        # Add inline policy with specific embedding model ARN
+        embedding_model_arn = 'arn:aws:bedrock:us-east-1::foundation-model/amazon.titan-embed-text-v1'
+
+        least_privilege_policy = {
+            'Version': '2012-10-17',
+            'Statement': [{
+                'Effect': 'Allow',
+                'Action': 'bedrock:InvokeModel',
+                'Resource': embedding_model_arn
+            }]
+        }
+
+        mock_checker.iam.put_role_policy(
+            RoleName='KBRole',
+            PolicyName='LeastPrivilegePolicy',
+            PolicyDocument=json.dumps(least_privilege_policy)
+        )
+
+        # Configure KB
+        setup_knowledge_base_mock(
+            mock_checker.bedrock_agent,
+            kb_id='kb-123',
+            kb_name='TestKB',
+            role_arn=role_response['Role']['Arn']
+        )
+
+        mock_checker.bedrock_agent.get_knowledge_base.return_value = {
+            'knowledgeBase': {
+                'knowledgeBaseId': 'kb-123',
+                'name': 'TestKB',
+                'roleArn': role_response['Role']['Arn'],
+                'knowledgeBaseConfiguration': {
+                    'vectorKnowledgeBaseConfiguration': {
+                        'embeddingModelArn': embedding_model_arn
+                    }
+                }
+            }
+        }
+
+        # Run check
+        kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
+        kb_checks.bedrock_agent = mock_checker.bedrock_agent
+        findings = kb_checks.check_embedding_model_access()
+
+        # Verify no HIGH findings (only foundation model, properly scoped IAM)
+        high_findings = [f for f in findings if f.get('risk_level') == RiskLevel.HIGH]
+        assert len(high_findings) == 0

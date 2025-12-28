@@ -2015,8 +2015,20 @@ class KnowledgeBaseSecurityChecks:
                     # Format: arn:aws:bedrock:region::foundation-model/model-id
                     model_id = embedding_model_arn.split('/')[-1] if '/' in embedding_model_arn else embedding_model_arn
 
-                    # Check if custom model access is properly controlled
-                    # Note: Foundation models have AWS-managed access, custom models need IAM policies
+                    # Get the Knowledge Base execution role ARN for IAM analysis
+                    role_arn = kb_config.get('roleArn', '')
+
+                    # Perform deep IAM policy analysis for ALL models (foundation and custom)
+                    # This detects overly permissive policies like AdministratorAccess
+                    # and wildcard bedrock:InvokeModel permissions
+                    if embedding_model_arn and role_arn:
+                        iam_findings = self._analyze_iam_policies_for_embedding_model(
+                            kb_name, kb_id, embedding_model_arn, role_arn
+                        )
+                        findings.extend(iam_findings)
+
+                    # Additional check for custom models
+                    # Note: Foundation models have AWS-managed access, custom models need extra scrutiny
                     if 'custom-model' in embedding_model_arn.lower():
                         # This is a custom model - should have restricted access
                         findings.append({
@@ -2049,6 +2061,157 @@ class KnowledgeBaseSecurityChecks:
 
         except Exception as e:
             print(f"[ERROR] Failed to list knowledge bases: {str(e)}")
+
+        return findings
+
+    def _analyze_iam_policies_for_embedding_model(
+        self,
+        kb_name: str,
+        kb_id: str,
+        embedding_model_arn: str,
+        role_arn: str
+    ) -> List[Dict]:
+        """
+        Analyze IAM policies for overly permissive embedding model access.
+
+        Detects security issues in the Knowledge Base execution role:
+        - AdministratorAccess / PowerUserAccess managed policies
+        - Wildcard bedrock:InvokeModel permissions on Resource:*
+        - Missing resource-level restrictions
+
+        Args:
+            kb_name: Knowledge Base name for reporting
+            kb_id: Knowledge Base ID
+            embedding_model_arn: ARN of the embedding model
+            role_arn: IAM role ARN used by the Knowledge Base
+
+        Returns:
+            List of security findings related to IAM permissions
+        """
+        findings = []
+
+        # Extract role name from ARN (format: arn:aws:iam::account:role/RoleName)
+        role_name = role_arn.split('/')[-1] if '/' in role_arn else None
+        if not role_name:
+            return findings
+
+        try:
+            # Check attached managed policies for overly permissive AWS-managed policies
+            try:
+                attached_policies = self.checker.iam.list_attached_role_policies(
+                    RoleName=role_name
+                )
+
+                for policy in attached_policies.get('AttachedPolicies', []):
+                    policy_name = policy['PolicyName']
+
+                    # Detect dangerous AWS-managed policies
+                    if policy_name in ['AdministratorAccess', 'PowerUserAccess']:
+                        findings.append({
+                            'risk_level': RiskLevel.HIGH,
+                            'title': f'Knowledge Base role has {policy_name} policy',
+                            'description': (
+                                f'Knowledge Base "{kb_name}" execution role has the overly permissive '
+                                f'AWS-managed policy "{policy_name}" attached. This grants far more permissions '
+                                f'than needed for embedding model access and violates the principle of least privilege.'
+                            ),
+                            'location': f'Knowledge Base: {kb_name}',
+                            'resource': role_arn,
+                            'remediation': (
+                                f'Replace {policy_name} with a least-privilege policy:\n'
+                                f'1. Create a custom policy with only required permissions:\n'
+                                f'   - bedrock:InvokeModel for specific embedding model ARN\n'
+                                f'   - s3:GetObject, s3:ListBucket for data source buckets\n'
+                                f'   - aoss:APIAccessAll for vector store (if using OpenSearch)\n'
+                                f'2. Detach {policy_name} from role {role_name}\n'
+                                f'3. Attach the new least-privilege policy'
+                            ),
+                            'details': {
+                                'knowledge_base_id': kb_id,
+                                'role_arn': role_arn,
+                                'policy_name': policy_name,
+                                'policy_type': 'AWS-managed',
+                                'embedding_model_arn': embedding_model_arn
+                            }
+                        })
+
+            except Exception as e:
+                print(f"[WARN] Could not check attached policies for role {role_name}: {str(e)}")
+
+            # Check inline policies for wildcard permissions
+            try:
+                inline_policies = self.checker.iam.list_role_policies(RoleName=role_name)
+
+                for policy_name in inline_policies.get('PolicyNames', []):
+                    try:
+                        policy_doc = self.checker.iam.get_role_policy(
+                            RoleName=role_name,
+                            PolicyName=policy_name
+                        ).get('PolicyDocument', {})
+
+                        # Analyze each statement for overly permissive permissions
+                        for statement in policy_doc.get('Statement', []):
+                            if statement.get('Effect') != 'Allow':
+                                continue
+
+                            actions = statement.get('Action', [])
+                            resources = statement.get('Resource', [])
+
+                            # Convert to list if single string
+                            if isinstance(actions, str):
+                                actions = [actions]
+                            if isinstance(resources, str):
+                                resources = [resources]
+
+                            # Check for bedrock:InvokeModel or bedrock:* with wildcard resources
+                            has_invoke_model = any(
+                                action in ['bedrock:InvokeModel', 'bedrock:*']
+                                for action in actions
+                            )
+                            has_wildcard_resource = '*' in resources
+
+                            if has_invoke_model and has_wildcard_resource:
+                                findings.append({
+                                    'risk_level': RiskLevel.HIGH,
+                                    'title': 'Knowledge Base role can invoke ANY Bedrock model',
+                                    'description': (
+                                        f'Knowledge Base "{kb_name}" execution role has bedrock:InvokeModel '
+                                        f'permission with Resource:*, allowing it to invoke ANY Bedrock model. '
+                                        f'This should be restricted to only the specific embedding model used '
+                                        f'by this Knowledge Base.'
+                                    ),
+                                    'location': f'Knowledge Base: {kb_name}',
+                                    'resource': role_arn,
+                                    'remediation': (
+                                        f'Restrict the IAM policy to specific resources:\n'
+                                        f'1. Update inline policy "{policy_name}" on role {role_name}\n'
+                                        f'2. Change Resource from "*" to: "{embedding_model_arn}"\n'
+                                        f'3. Example policy:\n'
+                                        f'   {{\n'
+                                        f'     "Effect": "Allow",\n'
+                                        f'     "Action": "bedrock:InvokeModel",\n'
+                                        f'     "Resource": "{embedding_model_arn}"\n'
+                                        f'   }}'
+                                    ),
+                                    'details': {
+                                        'knowledge_base_id': kb_id,
+                                        'role_arn': role_arn,
+                                        'policy_name': policy_name,
+                                        'policy_type': 'inline',
+                                        'embedding_model_arn': embedding_model_arn,
+                                        'actions': actions,
+                                        'resources': resources
+                                    }
+                                })
+
+                    except Exception as e:
+                        print(f"[WARN] Could not analyze inline policy {policy_name}: {str(e)}")
+
+            except Exception as e:
+                print(f"[WARN] Could not list inline policies for role {role_name}: {str(e)}")
+
+        except Exception as e:
+            print(f"[WARN] Error analyzing IAM policies for KB {kb_name}: {str(e)}")
 
         return findings
 
