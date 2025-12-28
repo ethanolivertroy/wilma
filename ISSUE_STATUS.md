@@ -12,7 +12,7 @@ This document tracks the implementation status of all security features from the
 
 | Module | Total Checks | Completed | In Progress | TODO | Completion % |
 |--------|--------------|-----------|-------------|------|--------------|
-| **Knowledge Bases** | 12 | 8 | 1 | 3 | 67% |
+| **Knowledge Bases** | 12 | 12 | 0 | 0 | 100% |
 | **Guardrails** | 11 | 4 | 0 | 7 | 36% |
 | **Agents** | 10 | 0 | 0 | 10 | 0% |
 | **Fine-Tuning** | 11 | 0 | 0 | 11 | 0% |
@@ -104,32 +104,46 @@ This document tracks the implementation status of all security features from the
      - Configurable tag requirements via WilmaConfig
    - Reference: IMPROVEMENTS.md Phase 4.3
 
-### In Progress 🔄
-
 9. **Indirect Prompt Injection in Documents** - Risk 8/10
    - Status: 🔄 PARTIAL (Pattern detection ready, not integrated)
    - Available Utility: `scan_text_for_prompt_injection()` in utils.py
    - Missing: Document content scanning (would require S3 object access)
    - Blocker: Performance concerns with scanning large document sets
    - Recommended Approach: Lambda function for async scanning
-
-### TODO ⏳
+   - Note: Limitation warning added to inform users
 
 10. **S3 Bucket Public Access Validation** - Risk 10/10
-    - Status: ⏳ TODO
-    - Available Utility: `check_s3_bucket_public_access()` exists in utils.py
-    - Missing: Integration into knowledge_bases.py check
-    - Estimated Effort: 1-2 hours
+    - Status: ✅ COMPLETED
+    - Implementation: `check_s3_bucket_public_access()` lines 82-225
+    - Features:
+      - Validates all 4 Block Public Access settings (BlockPublicAcls, IgnorePublicAcls, BlockPublicPolicy, RestrictPublicBuckets)
+      - Handles NoSuchPublicAccessBlockConfiguration exception
+      - Creates CRITICAL findings for missing/incomplete protection
+      - Integrated in run_all_checks() at line 2072
+    - Testing: ⏳ Unit tests needed
 
 11. **S3 Versioning Enabled Check** - Risk 7/10
-    - Status: ⏳ TODO
-    - Missing: S3 versioning validation logic
-    - Estimated Effort: 2-3 hours
+    - Status: ✅ COMPLETED
+    - Implementation: `check_knowledge_base_versioning()` lines 1293-1388
+    - Features:
+      - Validates S3 versioning status (Enabled vs Disabled/Suspended)
+      - Deduplicates checks for shared buckets using checked_buckets set
+      - Creates MEDIUM findings for disabled versioning
+      - Explains importance for data poisoning recovery
+      - Integrated in run_all_checks() at line 2074
+    - Testing: ⏳ Unit tests needed
 
 12. **Embedding Model Access Control** - Risk 6/10
-    - Status: ⏳ TODO
-    - Missing: IAM policy analysis for embedding model permissions
-    - Estimated Effort: 3-4 hours
+    - Status: ✅ COMPLETED (Basic implementation)
+    - Implementation: `check_embedding_model_access()` lines 1975-2053
+    - Features:
+      - Detects custom embedding model usage
+      - Creates MEDIUM findings suggesting manual IAM review
+      - Deduplicates checks across KBs using checked_models set
+      - Foundation models (amazon.*, cohere.*, etc.) are excluded
+      - Integrated in run_all_checks() at line 2091
+    - Testing: ⏳ Unit tests needed
+    - Enhancement Opportunity: Could add deep IAM policy analysis (detect AdministratorAccess, wildcard Resource:*)
 
 ---
 

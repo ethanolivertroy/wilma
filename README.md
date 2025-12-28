@@ -8,7 +8,7 @@
 [![Tests](https://github.com/ethanolivertroy/wilma/actions/workflows/test.yml/badge.svg)](https://github.com/ethanolivertroy/wilma/actions/workflows/test.yml)
 [![Publish](https://github.com/ethanolivertroy/wilma/actions/workflows/publish.yml/badge.svg)](https://github.com/ethanolivertroy/wilma/actions/workflows/publish.yml)
 
-<img width="1536" height="1024" alt="image" src="https://github.com/user-attachments/assets/b5ffcf1d-a416-4a9c-848b-6d7b0723a7a9" />
+![Wilma Logo](wilma-logo.jpg)
 
 
 ## Enhanced with GenAI-Specific Security Features
