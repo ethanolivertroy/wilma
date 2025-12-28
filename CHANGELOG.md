@@ -1,5 +1,44 @@
 # Changelog
 
+## [1.2.0] - 2025-12-27
+
+### Added
+- **Rich Terminal UI** - Beautiful Charmbracelet-quality terminal output
+  - Colorful tables with proper borders and styling
+  - Risk-based color coding (critical=red+blink, high=red, medium=yellow, low=blue)
+  - Summary panels with grid layouts
+  - Enhanced learning mode with styled tables showing OWASP LLM mappings
+  - Professional panel layouts for findings
+  - Syntax-highlighted fix commands in cyan on black
+  - Beautiful double-border header panels
+  - Horizontal rules separating sections
+
+- **Educational Wiki** - Comprehensive security education resource
+  - Home page with navigation hub
+  - GenAI Security Fundamentals (7 pillars of GenAI security)
+  - OWASP LLM Top 10 (2025) with real-world examples
+  - Knowledge Bases (RAG) Security deep dive
+  - Installation guide
+  - Published at: https://github.com/ethanolivertroy/wilma/wiki
+
+### Changed
+- **Replaced Dependencies**:
+  - Removed `colorama` (replaced by rich)
+  - Removed `tabulate` (replaced by rich)
+  - Added `rich>=13.7.0` for beautiful terminal UI
+
+- **Report Generation** completely rewritten:
+  - `reports.py` now uses Rich Console, Table, Panel, and Rule components
+  - Summary displayed as rounded table with status indicators
+  - Findings shown in bordered tables with color-coded severity
+  - Learning mode shows OWASP LLM Top 10 mappings
+  - ✓ Good practices shown with green checkmarks
+  - ⚠ Critical issues with blinking red alerts
+
+### Infrastructure
+- Main and dev branches unified with full git history
+- All tests, docs, and CI/CD preserved
+
 ## [1.1.0] - 2025-11-05
 ### Published to PyPI
 
