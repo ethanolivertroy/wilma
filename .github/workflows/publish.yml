@@ -40,14 +40,14 @@ jobs:
 
     - name: Run mypy type checker
       run: mypy src/wilma --show-error-codes
-      continue-on-error: true
+      continue-on-error: true  # Intentional: type hints are incremental, don't block CI
 
     - name: Run pytest with coverage
       run: |
         pytest \
           --cov=wilma \
           --cov-report=term-missing \
-          --cov-fail-under=50 \
+          --cov-fail-under=50  # Matches PR template requirements \
           -v \
           -m "not slow"
       env:
@@ -75,6 +75,7 @@ jobs:
     - name: Get current version from pyproject.toml
       id: get_version
       run: |
+        # tomllib is built-in for Python 3.11+; tomli used for 3.8-3.10 (installed via dev deps)
         VERSION=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])" 2>/dev/null || python -c "import tomli; print(tomli.load(open('pyproject.toml', 'rb'))['project']['version'])")
         echo "version=$VERSION" >> $GITHUB_OUTPUT
         echo "📦 Current version: $VERSION"

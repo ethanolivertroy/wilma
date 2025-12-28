@@ -43,7 +43,7 @@ Fixes #
 - [ ] Linting passes (`ruff check src/ tests/`)
 - [ ] Security scan passes (`bandit -r src/`)
 - [ ] Type checking passes (`mypy src/wilma`) (if applicable)
-- [ ] Coverage remains at or above 80% (`pytest --cov=wilma`)
+- [ ] Coverage remains at or above 50% (`pytest --cov=wilma`)
 - [ ] Documentation has been updated (if needed)
 - [ ] CHANGELOG.md has been updated (if user-facing changes)
 - [ ] Commit messages are clear and descriptive
@@ -51,7 +51,7 @@ Fixes #
 ## CI/CD Status
 <!-- The following checks will run automatically -->
 - [ ] GitHub Actions tests pass (Python 3.8, 3.9, 3.10, 3.11, 3.12)
-- [ ] Code coverage check passes (80% minimum)
+- [ ] Code coverage check passes (50% minimum)
 - [ ] Security scanning passes (bandit)
 - [ ] Linting passes (ruff)
 

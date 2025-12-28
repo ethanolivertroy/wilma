@@ -7,6 +7,7 @@
 [![AWS](https://img.shields.io/badge/AWS-Security%20Best%20Practices-orange)](https://aws.amazon.com/security/)
 [![Tests](https://github.com/ethanolivertroy/wilma/actions/workflows/test.yml/badge.svg)](https://github.com/ethanolivertroy/wilma/actions/workflows/test.yml)
 [![Publish](https://github.com/ethanolivertroy/wilma/actions/workflows/publish.yml/badge.svg)](https://github.com/ethanolivertroy/wilma/actions/workflows/publish.yml)
+[![OSSF Scorecard](https://api.scorecard.dev/projects/github.com/ethanolivertroy/wilma/badge)](https://scorecard.dev/viewer/?uri=github.com/ethanolivertroy/wilma)
 
 ![Wilma Logo](wilma-logo.jpg)
 

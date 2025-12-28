@@ -2,9 +2,9 @@ name: Test Suite
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main ]
   pull_request:
-    branches: [ main, develop ]
+    branches: [ main ]
 
 jobs:
   test:
@@ -47,7 +47,7 @@ jobs:
       run: |
         echo "🔎 Running mypy type checker..."
         mypy src/wilma --show-error-codes --pretty
-      continue-on-error: true  # Allow failure for now until types are fully added
+      continue-on-error: true  # Intentional: type hints are incremental, don't block CI
 
     - name: Run unit and integration tests with coverage
       run: |
@@ -57,7 +57,7 @@ jobs:
           --cov-report=term-missing \
           --cov-report=xml \
           --cov-report=html \
-          --cov-fail-under=50 \
+          --cov-fail-under=50  # Matches PR template requirements \
           -v \
           -m "not slow"
       env:

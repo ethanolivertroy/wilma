@@ -1,0 +1,50 @@
+name: OSSF Scorecard Security Assessment
+
+on:
+  # Run weekly on default branch
+  schedule:
+    - cron: '0 2 * * 1'  # Every Monday at 2 AM UTC
+
+  # Run on pushes to main
+  push:
+    branches: [ main ]
+
+  # Allow manual trigger
+  workflow_dispatch:
+
+# Restricted permissions for security
+permissions: read-all
+
+jobs:
+  scorecard:
+    name: Security Scorecard
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write  # Upload SARIF results
+      id-token: write        # Publish results via OIDC
+      contents: read         # Read repository
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Run OSSF Scorecard
+        uses: ossf/scorecard-action@v2.4.3
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          publish_results: true  # Enable badge and REST API
+
+      - name: Upload SARIF to GitHub
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results.sarif
+
+      - name: Upload SARIF as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SARIF file
+          path: results.sarif
+          retention-days: 5
