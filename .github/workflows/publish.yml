@@ -8,6 +8,10 @@ on:
       - 'pyproject.toml'
       - 'setup.py'
 
+# Minimal default permissions
+permissions:
+  contents: read
+
 jobs:
   test:
     name: Run Full Test Suite
@@ -19,10 +23,10 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
       with:
         python-version: ${{ matrix.python-version }}
         cache: 'pip'
@@ -63,12 +67,12 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       with:
         fetch-depth: 0
 
     - name: Set up Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
       with:
         python-version: '3.11'
 
@@ -100,16 +104,21 @@ jobs:
     needs: check-version
     if: needs.check-version.outputs.should_publish == 'true'
 
+    # Elevated permissions needed for this job
+    permissions:
+      contents: write      # Create tags and releases
+      id-token: write      # PyPI trusted publishing
+
     environment:
       name: pypi
       url: https://pypi.org/project/wilma-sec/${{ needs.check-version.outputs.version }}/
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
     - name: Set up Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
       with:
         python-version: '3.11'
 
