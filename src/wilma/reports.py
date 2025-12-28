@@ -1,10 +1,10 @@
 """
 Security Report Generation
 
-Formats security findings for human-readable and machine-parseable output.
+Formats security findings for human-readable and machine-parseable output with rich terminal UI.
 
 Output Formats:
-- Standard Mode (text): User-friendly with simple + technical explanations
+- Standard Mode (text): Beautiful terminal UI with tables, panels, and colors
 - Learn Mode (text): Educational with security concept explanations
 - JSON: Machine-parseable for CI/CD integration
 
@@ -20,19 +20,27 @@ Licensed under GPL v3
 import json
 from datetime import datetime
 
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
+from rich import box
+from rich.rule import Rule
+
 from wilma.enums import RiskLevel, SecurityMode
 
 
 class ReportGenerator:
     """
-    Formats security findings into readable reports.
+    Formats security findings into beautiful terminal reports using Rich.
 
-    Supports both human-friendly text and machine-parseable JSON.
+    Supports both human-friendly rich text and machine-parseable JSON.
     """
 
     def __init__(self, checker):
         """Initialize with BedrockSecurityChecker containing findings."""
         self.checker = checker
+        self.console = Console()
 
     def generate_report(self, output_format: str = 'text') -> str:
         """
@@ -42,234 +50,282 @@ class ReportGenerator:
             output_format: 'text' (default) or 'json'
 
         Returns:
-            Formatted report string
+            Formatted report string (or prints directly for rich text)
         """
         if output_format == 'json':
             return self._generate_json_report()
         elif self.checker.mode == SecurityMode.LEARN:
-            return self._generate_learn_report()
+            self._generate_learn_report_rich()
+            return ""  # Rich prints directly
         else:  # STANDARD mode
-            return self._generate_standard_report()
+            self._generate_standard_report_rich()
+            return ""  # Rich prints directly
 
-    def _generate_standard_report(self) -> str:
-        """Generate a comprehensive security report with clear explanations and technical details."""
-        report = []
+    def _generate_standard_report_rich(self):
+        """Generate a beautiful security report using Rich."""
+        # Header
+        header_text = Text()
+        header_text.append("WILMA SECURITY REPORT\n", style="bold cyan")
+        header_text.append(f"AWS Bedrock Configuration Checker", style="dim")
 
-        # Header with ASCII art
-        report.append("")
-        report.append("    ╦ ╦╦╦  ╔╦╗╔═╗  ┌─┐┌─┐┌─┐┬ ┬┬─┐┬┌┬┐┬ ┬  ┬─┐┌─┐┌─┐┌─┐┬─┐┌┬┐")
-        report.append("    ║║║║║  ║║║╠═╣  └─┐├┤ │  │ │├┬┘│ │ └┬┘  ├┬┘├┤ ├─┘│ │├┬┘ │ ")
-        report.append("    ╚╩╝╩╩═╝╩ ╩╩ ╩  └─┘└─┘└─┘└─┘┴└─┴ ┴  ┴   ┴└─└─┘┴  └─┘┴└─ ┴ ")
-        report.append("")
-        report.append("=" * 65)
-        report.append(f"Account: {self.checker.account_id} | Region: {self.checker.region}")
-        report.append("")
+        self.console.print(Panel(
+            header_text,
+            box=box.DOUBLE,
+            border_style="cyan",
+            padding=(1, 2)
+        ))
 
-        # Summary
+        # Account info
+        info_table = Table.grid(padding=(0, 2))
+        info_table.add_column(style="bold")
+        info_table.add_column()
+        info_table.add_row("Account:", self.checker.account_id)
+        info_table.add_row("Region:", self.checker.region)
+        info_table.add_row("Scan Time:", datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"))
+        self.console.print(info_table)
+        self.console.print()
+
+        # Summary counts
         critical_count = sum(1 for f in self.checker.findings if f['risk_level'] == RiskLevel.CRITICAL)
         high_count = sum(1 for f in self.checker.findings if f['risk_level'] == RiskLevel.HIGH)
         medium_count = sum(1 for f in self.checker.findings if f['risk_level'] == RiskLevel.MEDIUM)
         low_count = sum(1 for f in self.checker.findings if f['risk_level'] == RiskLevel.LOW)
 
+        # Summary table
+        summary = Table(title="Security Summary", box=box.ROUNDED, show_header=True, header_style="bold magenta")
+        summary.add_column("Category", style="cyan", width=30)
+        summary.add_column("Count", justify="center", width=10)
+        summary.add_column("Status", justify="center", width=20)
+
         if self.checker.good_practices:
-            report.append(f"[PASS] Well done! {len(self.checker.good_practices)} security best practices are properly configured")
+            summary.add_row(
+                "✓ Good Practices",
+                str(len(self.checker.good_practices)),
+                Text("PASSING", style="bold green")
+            )
 
         if critical_count > 0:
-            report.append(f"[CRITICAL] {critical_count} critical issue{'s' if critical_count != 1 else ''}")
+            summary.add_row(
+                "⚠ Critical Issues",
+                str(critical_count),
+                Text("IMMEDIATE ACTION REQUIRED", style="bold red blink")
+            )
+
         if high_count > 0:
-            report.append(f"[HIGH] {high_count} high-risk issue{'s' if high_count != 1 else ''}")
+            summary.add_row(
+                "◆ High Risk Issues",
+                str(high_count),
+                Text("ADDRESS SOON", style="bold red")
+            )
+
         if medium_count > 0:
-            report.append(f"[MEDIUM] {medium_count} medium-risk issue{'s' if medium_count != 1 else ''}")
+            summary.add_row(
+                "▲ Medium Risk Issues",
+                str(medium_count),
+                Text("PLAN REMEDIATION", style="bold yellow")
+            )
+
         if low_count > 0:
-            report.append(f"[LOW] {low_count} low-priority improvement{'s' if low_count != 1 else ''}")
+            summary.add_row(
+                "◇ Low Priority Items",
+                str(low_count),
+                Text("BEST PRACTICE", style="bold blue")
+            )
+
+        self.console.print(summary)
+        self.console.print()
 
         # Good practices
         if self.checker.good_practices:
-            report.append("\n    ◆ ◇ ◆")
-            report.append("\n[PASS] WHAT'S WORKING WELL:")
-            report.append("-" * 30)
+            self.console.print(Rule("[bold green]What's Working Well", style="green"))
+            practices_table = Table(box=box.SIMPLE, show_header=False)
+            practices_table.add_column("", style="green")
             for practice in self.checker.good_practices:
-                report.append(f"  - {practice['practice']}")
+                practices_table.add_row(f"✓ {practice['practice']}")
+            self.console.print(practices_table)
+            self.console.print()
 
-        # Issues by priority - SHOW ALL FINDINGS (not limited)
+        # Findings by severity
         for risk_level in [RiskLevel.CRITICAL, RiskLevel.HIGH, RiskLevel.MEDIUM, RiskLevel.LOW]:
             level_findings = [f for f in self.checker.findings if f['risk_level'] == risk_level]
 
             if level_findings:
-                report.append("\n    ◆ ◇ ◆")
-                report.append(f"\n{risk_level.symbol} {risk_level.label} ISSUES:")
-                report.append("-" * 30)
+                # Color scheme based on risk level
+                if risk_level == RiskLevel.CRITICAL:
+                    style = "bold red"
+                    box_style = "red"
+                elif risk_level == RiskLevel.HIGH:
+                    style = "bold red"
+                    box_style = "red"
+                elif risk_level == RiskLevel.MEDIUM:
+                    style = "bold yellow"
+                    box_style = "yellow"
+                else:
+                    style = "bold blue"
+                    box_style = "blue"
+
+                self.console.print(Rule(f"[{style}]{risk_level.symbol} {risk_level.label} Issues", style=box_style))
 
                 for i, finding in enumerate(level_findings, 1):
-                    report.append(f"\n{i}. {finding['issue']}")
-                    report.append(f"   Location: {finding['resource']}")
-                    report.append(f"   Risk Score: {finding['risk_score']}/10")
+                    # Create finding table
+                    finding_table = Table(
+                        title=f"{i}. {finding['issue']}",
+                        box=box.ROUNDED,
+                        show_header=False,
+                        title_style=style,
+                        border_style=box_style,
+                        padding=(0, 1)
+                    )
+                    finding_table.add_column("Field", style="bold", width=18)
+                    finding_table.add_column("Value", width=80)
 
-                    # Show simple explanation
+                    finding_table.add_row("Location", finding['resource'])
+                    finding_table.add_row("Risk Score", f"{finding['risk_score']}/10")
+
                     if finding.get('learn_more'):
-                        report.append(f"   \n   What this means: {finding['learn_more']}")
+                        finding_table.add_row("What This Means", finding['learn_more'])
 
-                    # Show technical details
                     if finding.get('technical_details'):
-                        report.append(f"   Technical details: {finding['technical_details']}")
+                        finding_table.add_row("Technical Details", finding['technical_details'])
 
-                    # Show recommendation
-                    report.append("   \n   To fix this, run:")
+                    # Fix command in a highlighted panel
                     if finding.get('fix_command'):
-                        report.append(f"   > {finding['fix_command']}")
+                        finding_table.add_row(
+                            "Fix Command",
+                            Text(finding['fix_command'], style="bold cyan on black")
+                        )
                     else:
-                        report.append(f"   {finding['recommendation']}")
+                        finding_table.add_row("Recommendation", finding['recommendation'])
 
-        # Footer
-        report.append("\n    ◆ ◇ ◆")
-        report.append("\n" + "-" * 50)
-        report.append("[TIPS]")
-        report.append("  - Fix critical issues first")
-        report.append("  - Run with --learn to understand each check")
-        report.append("  - Run with --fix <issue> for step-by-step remediation")
-        report.append("\nThere! That wasn't so hard, was it?")
+                    self.console.print(finding_table)
+                    self.console.print()
 
-        return "\n".join(report)
+        # Footer tips
+        tips_panel = Panel(
+            Text.from_markup(
+                "💡 [bold]Tips:[/bold]\n"
+                "  • Fix [bold red]critical[/bold red] issues first\n"
+                "  • Run with [cyan]--learn[/cyan] to understand each check\n"
+                "  • Run with [cyan]--output json[/cyan] for CI/CD integration\n\n"
+                "[dim italic]There! That wasn't so hard, was it?[/dim italic]"
+            ),
+            title="Next Steps",
+            border_style="dim",
+            box=box.ROUNDED
+        )
+        self.console.print(tips_panel)
 
-    def _generate_learn_report(self) -> str:
-        """Generate an educational report about the security checks."""
-        report = []
+    def _generate_learn_report_rich(self):
+        """Generate an educational report using Rich."""
+        # Header
+        header = Panel(
+            Text("WILMA'S SECURITY EDUCATION - LEARNING MODE", justify="center", style="bold magenta"),
+            box=box.DOUBLE,
+            border_style="magenta"
+        )
+        self.console.print(header)
+        self.console.print()
 
-        report.append("\nWilma's Security Education - Learning Mode")
-        report.append("=" * 50)
-        report.append("\nLet me explain what each security check does and why it matters.")
-        report.append("Run without --learn to perform the actual security audit.")
-
-        report.append("\n\nSecurity Checks Explained:\n")
+        intro = Text()
+        intro.append("Let me explain what each security check does and why it matters.\n", style="bold")
+        intro.append("Run without ", style="dim")
+        intro.append("--learn", style="cyan")
+        intro.append(" to perform the actual security audit.\n", style="dim")
+        self.console.print(intro)
+        self.console.print()
 
         checks = [
             {
                 "name": "Prompt Injection Protection",
                 "description": "Prevents attackers from tricking your AI into ignoring its instructions",
                 "example": "Like someone trying to convince a security guard to let them in",
-                "why_important": "Protects your AI from generating harmful or inappropriate content"
+                "why_important": "Protects your AI from generating harmful or inappropriate content",
+                "owasp": "LLM01"
             },
             {
                 "name": "Data Privacy Compliance",
                 "description": "Ensures personal information (PII) isn't exposed through AI logs or responses",
                 "example": "Making sure credit card numbers or SSNs don't appear in logs",
-                "why_important": "Helps you comply with privacy laws and protect user data"
+                "why_important": "Helps you comply with privacy laws and protect user data",
+                "owasp": "LLM02"
             },
             {
-                "name": "Cost Anomaly Detection",
-                "description": "Monitors AI usage costs to detect potential abuse or compromised credentials",
-                "example": "Like getting alerts for unusual credit card charges",
-                "why_important": "Catches unauthorized use before it becomes expensive"
-            },
-            {
-                "name": "Model Access Control",
-                "description": "Controls who can use your AI models and what they can do",
-                "example": "Like having different keys for different rooms in a building",
-                "why_important": "Prevents unauthorized use and potential abuse of your AI"
-            },
-            {
-                "name": "Audit Logging",
-                "description": "Keeps records of all AI model usage for security and compliance",
-                "example": "Like security camera footage - you can review who did what",
-                "why_important": "Helps detect abuse and provides evidence for investigations"
-            },
-            {
-                "name": "Network Security",
-                "description": "Ensures AI traffic uses private, encrypted connections",
-                "example": "Like using a secure tunnel instead of shouting across a room",
-                "why_important": "Protects sensitive data from interception"
-            },
-            {
-                "name": "Resource Tagging",
-                "description": "Validates that AI resources have proper labels for governance",
-                "example": "Like labeling files in a filing cabinet so you can find them",
-                "why_important": "Enables cost tracking, access control, and compliance reporting"
-            },
-            {
-                "name": "Knowledge Base S3 Public Access",
-                "description": "Prevents public access to S3 buckets containing your knowledge base data",
+                "name": "Knowledge Base S3 Security",
+                "description": "Protects RAG document storage from unauthorized access and poisoning",
                 "example": "Making sure your filing cabinets aren't left unlocked on the street",
-                "why_important": "Stops attackers from injecting malicious documents into your AI's knowledge"
-            },
-            {
-                "name": "Knowledge Base S3 Encryption",
-                "description": "Ensures knowledge base documents are encrypted at rest in S3",
-                "example": "Like storing documents in a locked safe, not a cardboard box",
-                "why_important": "Protects your proprietary data if storage is compromised"
+                "why_important": "Stops attackers from injecting malicious documents into your AI's knowledge",
+                "owasp": "LLM04"
             },
             {
                 "name": "Vector Store Encryption",
                 "description": "Validates that vector databases (OpenSearch/Aurora) use encryption",
                 "example": "Encrypting the index cards in your library catalog",
-                "why_important": "Secures the AI embeddings that represent your documents"
+                "why_important": "Secures the AI embeddings that represent your documents",
+                "owasp": "LLM02"
             },
             {
-                "name": "Vector Store Access Control",
-                "description": "Ensures vector databases aren't publicly accessible over the internet",
-                "example": "Not leaving your database server open to the whole world",
-                "why_important": "Prevents unauthorized access to your AI's embedded knowledge"
+                "name": "Guardrail Configuration",
+                "description": "Validates content filtering and safety guardrails are properly configured",
+                "example": "Safety rails that prevent the AI from saying dangerous things",
+                "why_important": "Critical defense against prompt injection and harmful outputs",
+                "owasp": "LLM01"
             },
             {
-                "name": "PII Detection in Embeddings",
-                "description": "Scans knowledge base configurations for sensitive personal information",
-                "example": "Making sure SSNs and credit cards aren't in the documents you're indexing",
-                "why_important": "Prevents accidental exposure of private data through AI responses"
+                "name": "IAM Access Control",
+                "description": "Ensures only authorized users and services can access Bedrock",
+                "example": "Like having different keys for different rooms in a building",
+                "why_important": "Prevents unauthorized use and potential abuse of your AI",
+                "owasp": "LLM06"
             },
             {
-                "name": "Prompt Injection in Documents",
-                "description": "Detects malicious instruction patterns in knowledge base source documents",
-                "example": "Finding hidden instructions someone snuck into your reference materials",
-                "why_important": "Stops indirect attacks where bad documents manipulate AI behavior"
+                "name": "Audit Logging",
+                "description": "Keeps records of all AI model usage for security and compliance",
+                "example": "Like security camera footage - you can review who did what",
+                "why_important": "Helps detect abuse and provides evidence for investigations",
+                "owasp": "LLM10"
             },
             {
-                "name": "Knowledge Base Versioning",
-                "description": "Checks if S3 versioning is enabled for knowledge base buckets",
-                "example": "Like having undo/redo for your documents",
-                "why_important": "Lets you recover from accidental deletions or data poisoning attacks"
-            },
-            {
-                "name": "Knowledge Base IAM Permissions",
-                "description": "Audits IAM roles to ensure least-privilege access to knowledge bases",
-                "example": "Not giving the janitor keys to the executive suite",
-                "why_important": "Limits damage if credentials are compromised"
-            },
-            {
-                "name": "Knowledge Base Chunking Strategy",
-                "description": "Reviews how documents are split to prevent information leakage",
-                "example": "Making sure sensitive context doesn't bleed between sections",
-                "why_important": "Reduces risk of exposing unintended information in AI responses"
-            },
-            {
-                "name": "Knowledge Base Logging",
-                "description": "Validates that knowledge base queries and access are being logged",
-                "example": "Keeping a logbook of who looked at which documents",
-                "why_important": "Enables investigation of suspicious activity or data breaches"
-            },
-            {
-                "name": "Knowledge Base Tagging",
-                "description": "Ensures knowledge bases have proper tags for governance",
-                "example": "Labeling which project or team owns each knowledge base",
-                "why_important": "Critical for cost allocation and access control policies"
-            },
-            {
-                "name": "Embedding Model Access",
-                "description": "Checks that embedding models have appropriate access restrictions",
-                "example": "Controlling who can use the translator that converts your docs to AI format",
-                "why_important": "Prevents unauthorized use of custom or expensive models"
+                "name": "Network Security",
+                "description": "Ensures AI traffic uses private, encrypted connections via VPC",
+                "example": "Like using a secure tunnel instead of shouting across a room",
+                "why_important": "Protects sensitive data from interception",
+                "owasp": "LLM06"
             }
         ]
 
         for i, check in enumerate(checks, 1):
-            report.append(f"{i}. {check['name']}")
-            report.append(f"   What it does: {check['description']}")
-            report.append(f"   Example: {check['example']}")
-            report.append(f"   Why it matters: {check['why_important']}")
-            report.append("")
+            check_table = Table(
+                title=f"{i}. {check['name']}",
+                box=box.ROUNDED,
+                show_header=False,
+                title_style="bold cyan",
+                border_style="cyan"
+            )
+            check_table.add_column("", style="bold dim", width=20)
+            check_table.add_column("", width=70)
 
-        report.append("-" * 50)
-        report.append("Ready to run a real security check? Remove the --learn flag!")
+            check_table.add_row("What it does:", check['description'])
+            check_table.add_row("Example:", Text(check['example'], style="italic"))
+            check_table.add_row("Why it matters:", Text(check['why_important'], style="green"))
+            check_table.add_row("OWASP LLM:", Text(check['owasp'], style="bold magenta"))
 
-        return "\n".join(report)
+            self.console.print(check_table)
+            self.console.print()
+
+        # Footer
+        footer = Panel(
+            Text.from_markup(
+                "[bold cyan]Ready to run a real security check?[/bold cyan]\n\n"
+                "Remove the [yellow]--learn[/yellow] flag and I'll scan your AWS Bedrock configuration:\n"
+                "  [cyan]wilma[/cyan]\n\n"
+                "Or check out the comprehensive wiki:\n"
+                "  [cyan]https://github.com/ethanolivertroy/wilma/wiki[/cyan]"
+            ),
+            title="Next Steps",
+            border_style="green",
+            box=box.ROUNDED
+        )
+        self.console.print(footer)
 
     def _generate_json_report(self) -> str:
         """Generate a JSON report with all findings."""
