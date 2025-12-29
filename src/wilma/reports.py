@@ -20,12 +20,12 @@ Licensed under GPL v3
 import json
 from datetime import datetime
 
+from rich import box
 from rich.console import Console
 from rich.panel import Panel
+from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
-from rich import box
-from rich.rule import Rule
 
 from wilma.enums import RiskLevel, SecurityMode
 
@@ -66,7 +66,7 @@ class ReportGenerator:
         # Header
         header_text = Text()
         header_text.append("WILMA SECURITY REPORT\n", style="bold cyan")
-        header_text.append(f"AWS Bedrock Configuration Checker", style="dim")
+        header_text.append("AWS Bedrock Configuration Checker", style="dim")
 
         self.console.print(Panel(
             header_text,

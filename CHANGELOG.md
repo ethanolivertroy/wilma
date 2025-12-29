@@ -1,5 +1,25 @@
 # Changelog
 
+## [Unreleased]
+
+### Breaking Changes
+- **Minimum Python version raised to 3.9+** (was 3.8+)
+  - Aligned with AWS CloudShell default Python version (3.9.16)
+  - Python 3.8 reached end-of-life on October 7, 2024
+  - boto3/botocore dropped Python 3.8 support in April 2025
+
+### Changed
+- **Dependency Management Cleanup**:
+  - Removed `requirements.txt` (use `pyproject.toml` as single source of truth)
+  - Added deprecation notice to `setup.py` (kept for legacy compatibility)
+  - Added version upper bounds to all dependencies for SemVer compatibility
+  - Fixed version triple-mismatch: unified to 1.2.0 across `__init__.py`, `setup.py`, and `pyproject.toml`
+
+### Removed
+- Python 3.8 support from CI/CD workflows
+- Python 3.8 classifiers from package metadata
+- `requirements.txt` file (unused dependencies: colorama, tabulate, opensearch-py, requests-aws4auth)
+
 ## [1.2.0] - 2025-12-27
 
 ### Added

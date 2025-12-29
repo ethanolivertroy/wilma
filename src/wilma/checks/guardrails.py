@@ -1,6 +1,11 @@
 """
 AWS Bedrock Advanced Guardrails Security Checks Module
 
+⚠️ PLANNED FOR v2.0 - NOT YET IMPLEMENTED ⚠️
+
+This module is a placeholder for future Guardrail security checks.
+All methods currently raise NotImplementedError.
+
 This module implements comprehensive validation for AWS Bedrock Guardrails,
 going beyond simple existence checks to validate configuration strength
 and effectiveness.

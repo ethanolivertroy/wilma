@@ -17,7 +17,10 @@ from typing import Dict, List
 from botocore.exceptions import ClientError
 
 from wilma.enums import RiskLevel, SecurityMode
-from wilma.utils import handle_aws_error
+from wilma.utils import check_log_group_encryption, check_s3_bucket_encryption, handle_aws_error
+
+# Constants
+DEFAULT_COST_THRESHOLD = 100
 
 
 class GenAISecurityChecks:
@@ -26,28 +29,6 @@ class GenAISecurityChecks:
 
     Focuses on OWASP LLM Top 10 risks specific to foundation models.
     """
-
-    # Common PII patterns for data privacy checks
-    PII_PATTERNS = {
-        'SSN': r'\b\d{3}-\d{2}-\d{4}\b',
-        'Email': r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',
-        'Phone': r'\b\d{3}[-.]?\d{3}[-.]?\d{4}\b',
-        'Credit Card': r'\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b',
-        'IP Address': r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b',
-    }
-
-    # Common prompt injection patterns
-    PROMPT_INJECTION_PATTERNS = [
-        "ignore previous instructions",
-        "disregard all prior commands",
-        "system prompt",
-        "reveal your instructions",
-        "what are your rules",
-        "bypass security",
-        "jailbreak",
-        "DAN mode",
-        "developer mode"
-    ]
 
     def __init__(self, checker):
         """Initialize with parent checker instance."""
@@ -224,7 +205,6 @@ class GenAISecurityChecks:
                     bucket_name = s3_config['bucketName']
 
                     try:
-                        from wilma.utils import check_s3_bucket_encryption
                         encryption_status = check_s3_bucket_encryption(self.checker.s3, bucket_name)
 
                         if encryption_status['encrypted']:
@@ -268,7 +248,6 @@ class GenAISecurityChecks:
                     log_group_name = cloudwatch_config['logGroupName']
 
                     try:
-                        from wilma.utils import check_log_group_encryption
                         log_status = check_log_group_encryption(self.checker.cloudwatch, log_group_name)
 
                         if log_status['exists']:
@@ -374,7 +353,7 @@ class GenAISecurityChecks:
                         "aws ce create-anomaly-monitor --anomaly-monitor "
                         "'Name=BedrockMonitor,MonitorType=DIMENSIONAL,MonitorDimension=SERVICE' && "
                         "aws ce create-anomaly-subscription --subscription "
-                        "'SubscriptionName=BedrockAlerts,MonitorArnList=[MONITOR_ARN],Threshold=100,Frequency=DAILY,"
+                        f"'SubscriptionName=BedrockAlerts,MonitorArnList=[MONITOR_ARN],Threshold={DEFAULT_COST_THRESHOLD},Frequency=DAILY,"
                         "Subscribers=[{Address=your-email@example.com,Type=EMAIL}]'"
                     ),
                     learn_more="Unusual spikes in AI usage costs might indicate security breaches or abuse",

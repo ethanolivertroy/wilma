@@ -24,13 +24,17 @@ Threat Coverage:
 - MITRE ATLAS AML.T0020: Poison Training Data
 """
 
+import re
 from typing import Dict, List
 
 from botocore.exceptions import ClientError
 
-from wilma.utils import handle_aws_error, paginate_aws_results
+from wilma.utils import PII_PATTERNS, PROMPT_INJECTION_PATTERNS, handle_aws_error, paginate_aws_results
 
 from ..enums import RiskLevel
+
+# Constants
+MAX_RESULTS_PER_PAGE = 100
 
 
 class KnowledgeBaseSecurityChecks:
@@ -69,7 +73,7 @@ class KnowledgeBaseSecurityChecks:
                 'knowledgeBaseSummaries',
                 token_key='nextToken',  # noqa: S106
                 token_param='nextToken',  # noqa: S106
-                maxResults=100
+                maxResults=MAX_RESULTS_PER_PAGE
             ):
                 knowledge_bases.append(kb)
         except ClientError as e:
@@ -114,7 +118,7 @@ class KnowledgeBaseSecurityChecks:
                     # Extract S3 data source information
                     data_sources_response = self.bedrock_agent.list_data_sources(
                         knowledgeBaseId=kb_id,
-                        maxResults=100
+                        maxResults=MAX_RESULTS_PER_PAGE
                     )
 
                     for data_source in data_sources_response.get('dataSourceSummaries', []):
@@ -297,7 +301,7 @@ class KnowledgeBaseSecurityChecks:
                     # Get data sources for this knowledge base
                     data_sources_response = self.bedrock_agent.list_data_sources(
                         knowledgeBaseId=kb_id,
-                        maxResults=100
+                        maxResults=MAX_RESULTS_PER_PAGE
                     )
 
                     for data_source in data_sources_response.get('dataSourceSummaries', []):
@@ -921,16 +925,6 @@ class KnowledgeBaseSecurityChecks:
         """
         findings = []
 
-        # PII patterns for basic detection
-        import re
-        pii_patterns = {
-            'email': r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',
-            'ssn': r'\b\d{3}-\d{2}-\d{4}\b',
-            'credit_card': r'\b\d{4}[- ]?\d{4}[- ]?\d{4}[- ]?\d{4}\b',
-            'phone': r'\b\d{3}[-.]?\d{3}[-.]?\d{4}\b',
-            'aws_key': r'AKIA[0-9A-Z]{16}'
-        }
-
         try:
             # List all knowledge bases (with pagination)
             knowledge_bases = self._get_all_knowledge_bases()
@@ -947,7 +941,7 @@ class KnowledgeBaseSecurityChecks:
 
                 # Check for PII in knowledge base name and description
                 pii_found_in_metadata = []
-                for pii_type, pattern in pii_patterns.items():
+                for pii_type, pattern in PII_PATTERNS.items():
                     if re.search(pattern, kb_name, re.IGNORECASE):
                         pii_found_in_metadata.append(f'{pii_type} in name')
                     if re.search(pattern, kb_description, re.IGNORECASE):
@@ -980,7 +974,7 @@ class KnowledgeBaseSecurityChecks:
                     # Check S3 data source bucket names and prefixes for PII
                     data_sources_response = self.bedrock_agent.list_data_sources(
                         knowledgeBaseId=kb_id,
-                        maxResults=100
+                        maxResults=MAX_RESULTS_PER_PAGE
                     )
 
                     for data_source in data_sources_response.get('dataSourceSummaries', []):
@@ -990,7 +984,7 @@ class KnowledgeBaseSecurityChecks:
 
                         # Check data source metadata
                         pii_in_ds = []
-                        for pii_type, pattern in pii_patterns.items():
+                        for pii_type, pattern in PII_PATTERNS.items():
                             if re.search(pattern, ds_name, re.IGNORECASE):
                                 pii_in_ds.append(f'{pii_type} in data source name')
                             if re.search(pattern, ds_description, re.IGNORECASE):
@@ -1035,7 +1029,7 @@ class KnowledgeBaseSecurityChecks:
 
                             # Check bucket name and prefixes for PII patterns
                             pii_in_s3 = []
-                            for pii_type, pattern in pii_patterns.items():
+                            for pii_type, pattern in PII_PATTERNS.items():
                                 if bucket_name and re.search(pattern, bucket_name, re.IGNORECASE):
                                     pii_in_s3.append(f'{pii_type} in bucket name')
                                 for prefix in inclusion_prefixes:
@@ -1114,27 +1108,7 @@ class KnowledgeBaseSecurityChecks:
         """
         findings = []
 
-        # Prompt injection patterns (reuse from genai.py patterns)
-        injection_patterns = [
-            "ignore previous instructions",
-            "disregard all prior commands",
-            "forget what you were told",
-            "new instructions:",
-            "system:",
-            "admin mode",
-            "override security",
-            "bypass restrictions",
-            "reveal your prompt",
-            "show me your system message",
-            "as an ai",
-            "you must",
-            "you will",
-            "execute the following",
-            "run this code",
-        ]
-
         # Suspicious Unicode and invisible characters
-        import re
         suspicious_unicode_patterns = [
             r'[\u200B-\u200D\uFEFF]',  # Zero-width characters
             r'[\u202A-\u202E]',         # Bidirectional override
@@ -1157,7 +1131,7 @@ class KnowledgeBaseSecurityChecks:
 
                 # Check KB metadata for injection patterns
                 injection_in_metadata = []
-                for pattern in injection_patterns:
+                for pattern in PROMPT_INJECTION_PATTERNS:
                     if pattern.lower() in kb_name.lower() or pattern.lower() in kb_description.lower():
                         injection_in_metadata.append(pattern)
 
@@ -1197,7 +1171,7 @@ class KnowledgeBaseSecurityChecks:
                     # Check data sources
                     data_sources_response = self.bedrock_agent.list_data_sources(
                         knowledgeBaseId=kb_id,
-                        maxResults=100
+                        maxResults=MAX_RESULTS_PER_PAGE
                     )
 
                     for data_source in data_sources_response.get('dataSourceSummaries', []):
@@ -1207,7 +1181,7 @@ class KnowledgeBaseSecurityChecks:
 
                         # Check data source metadata
                         injection_in_ds = []
-                        for pattern in injection_patterns:
+                        for pattern in PROMPT_INJECTION_PATTERNS:
                             if pattern.lower() in ds_name.lower() or pattern.lower() in ds_description.lower():
                                 injection_in_ds.append(pattern)
 
@@ -1318,7 +1292,7 @@ class KnowledgeBaseSecurityChecks:
                     # Get data sources
                     data_sources_response = self.bedrock_agent.list_data_sources(
                         knowledgeBaseId=kb_id,
-                        maxResults=100
+                        maxResults=MAX_RESULTS_PER_PAGE
                     )
 
                     for data_source in data_sources_response.get('dataSourceSummaries', []):
@@ -1587,7 +1561,7 @@ class KnowledgeBaseSecurityChecks:
                     # Get data sources for chunking configuration
                     data_sources_response = self.bedrock_agent.list_data_sources(
                         knowledgeBaseId=kb_id,
-                        maxResults=100
+                        maxResults=MAX_RESULTS_PER_PAGE
                     )
 
                     for data_source in data_sources_response.get('dataSourceSummaries', []):
@@ -1811,7 +1785,7 @@ class KnowledgeBaseSecurityChecks:
                     # Check S3 access logging for data sources
                     data_sources_response = self.bedrock_agent.list_data_sources(
                         knowledgeBaseId=kb_id,
-                        maxResults=100
+                        maxResults=MAX_RESULTS_PER_PAGE
                     )
 
                     for data_source in data_sources_response.get('dataSourceSummaries', []):

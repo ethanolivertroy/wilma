@@ -1,6 +1,11 @@
 """
 AWS Bedrock Model Fine-Tuning Security Checks Module
 
+⚠️ PLANNED FOR v2.0 - NOT YET IMPLEMENTED ⚠️
+
+This module is a placeholder for future Fine-Tuning security checks.
+All methods currently raise NotImplementedError.
+
 This module implements security validation for the model fine-tuning
 pipeline, focusing on training data security and preventing data leakage
 from fine-tuned models.

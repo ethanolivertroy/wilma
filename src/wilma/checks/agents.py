@@ -1,6 +1,11 @@
 """
 AWS Bedrock Agents Security Checks Module
 
+⚠️ PLANNED FOR v2.0 - NOT YET IMPLEMENTED ⚠️
+
+This module is a placeholder for future Agent security checks.
+All methods currently raise NotImplementedError.
+
 This module implements security validation for AWS Bedrock Agents, which are
 autonomous AI systems that can execute actions in your AWS environment.
 

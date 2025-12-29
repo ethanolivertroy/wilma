@@ -3,6 +3,9 @@ Setup configuration for Wilma - AWS Bedrock Security Checker
 
 Copyright (C) 2025  Ethan Troy
 Licensed under GNU GPL v3.0 or later
+
+DEPRECATED: This file is maintained for legacy compatibility only.
+Use pyproject.toml for all dependency management (PEP 517/518).
 """
 
 from setuptools import setup, find_packages
@@ -12,7 +15,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="wilma-sec",
-    version="1.1.0",
+    version="1.2.0",
     author="Ethan Troy",
     author_email="",  # Optional - leave empty or use a project email
     description="Wilma - AWS Bedrock Security Configuration Checker with GenAI-specific security features",
@@ -31,7 +34,6 @@ setup(
         "Topic :: System :: Systems Administration",
         "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
@@ -40,7 +42,7 @@ setup(
     ],
     package_dir={"": "src"},
     packages=find_packages(where="src"),
-    python_requires=">=3.8",
+    python_requires=">=3.9",
     install_requires=[
         "boto3>=1.34.0",
         "botocore>=1.34.0",
