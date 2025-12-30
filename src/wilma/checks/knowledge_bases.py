@@ -333,6 +333,7 @@ class KnowledgeBaseSecurityChecks:
                             encryption_rules = encryption_response.get('ServerSideEncryptionConfiguration', {}).get('Rules', [])
 
                             if not encryption_rules:
+                                # No encryption configured
                                 findings.append(self._create_s3_encryption_finding(
                                     risk_level=RiskLevel.HIGH,
                                     title='Knowledge Base S3 bucket has no encryption',
@@ -419,22 +420,27 @@ class KnowledgeBaseSecurityChecks:
                                         })
                                     # else: using customer-managed KMS key - good!
 
-                        except self.s3.exceptions.ServerSideEncryptionConfigurationNotFoundError:
-                            findings.append(self._create_s3_encryption_finding(
-                                risk_level=RiskLevel.HIGH,
-                                title='Knowledge Base S3 bucket has no encryption',
-                                kb_name=kb_name,
-                                kb_id=kb_id,
-                                ds_name=ds_name,
-                                ds_id=ds_id,
-                                bucket_name=bucket_name,
-                                encryption_type='NONE',
-                                description_template=(
-                                    'Knowledge Base "{kb_name}" uses S3 bucket "{bucket_name}" '
-                                    'which has no server-side encryption configured. Your proprietary '
-                                    'knowledge base data is stored unencrypted at rest.'
-                                )
-                            ))
+                        except ClientError as e:
+                            # Catch ServerSideEncryptionConfigurationNotFoundError or NoSuchBucket
+                            error_code = e.response.get('Error', {}).get('Code', '')
+                            if error_code in ['ServerSideEncryptionConfigurationNotFoundError', 'NoSuchBucket']:
+                                findings.append(self._create_s3_encryption_finding(
+                                    risk_level=RiskLevel.HIGH,
+                                    title='Knowledge Base S3 bucket has no encryption',
+                                    kb_name=kb_name,
+                                    kb_id=kb_id,
+                                    ds_name=ds_name,
+                                    ds_id=ds_id,
+                                    bucket_name=bucket_name,
+                                    encryption_type='NONE',
+                                    description_template=(
+                                        'Knowledge Base "{kb_name}" uses S3 bucket "{bucket_name}" '
+                                        'which has no server-side encryption configured. Your proprietary '
+                                        'knowledge base data is stored unencrypted at rest.'
+                                    )
+                                ))
+                            else:
+                                print(f"[WARN] Could not check encryption for bucket {bucket_name}: {e}")
 
                         except Exception as e:
                             print(f"[WARN] Could not check encryption for bucket {bucket_name}: {str(e)}")

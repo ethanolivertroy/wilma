@@ -43,7 +43,7 @@ class TestKBDataSourceEncryption:
 
         # Run check
         kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
-        kb_checks.check_data_source_encryption()
+        kb_checks.check_s3_bucket_encryption()
 
         # Verify HIGH finding for unencrypted data source
         high_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.HIGH]
@@ -90,7 +90,7 @@ class TestKBDataSourceEncryption:
 
         # Run check
         kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
-        kb_checks.check_data_source_encryption()
+        kb_checks.check_s3_bucket_encryption()
 
         # Verify no HIGH findings (data source is encrypted)
         high_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.HIGH]
@@ -223,7 +223,7 @@ class TestKBChunkingConfiguration:
 
         # Run check
         kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
-        kb_checks.check_chunking_configuration()
+        kb_checks.check_knowledge_base_chunking_config()
 
         # Verify MEDIUM finding for excessive chunk size
         medium_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.MEDIUM]
@@ -258,7 +258,7 @@ class TestKBChunkingConfiguration:
 
         # Run check
         kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
-        kb_checks.check_chunking_configuration()
+        kb_checks.check_knowledge_base_chunking_config()
 
         # Verify no MEDIUM findings (chunk size is acceptable)
         medium_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.MEDIUM]
@@ -315,7 +315,7 @@ class TestKBIAMPermissions:
 
         # Run check
         kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
-        kb_checks.check_iam_permissions()
+        kb_checks.check_knowledge_base_access_patterns()
 
         # Verify CRITICAL finding for wildcard permissions
         critical_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.CRITICAL]
@@ -371,7 +371,7 @@ class TestKBIAMPermissions:
 
         # Run check
         kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
-        kb_checks.check_iam_permissions()
+        kb_checks.check_knowledge_base_access_patterns()
 
         # Verify no CRITICAL findings (permissions are least-privilege)
         critical_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.CRITICAL]
@@ -409,7 +409,7 @@ class TestKBPIIDetection:
 
         # Run check
         kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
-        kb_checks.check_pii_exposure()
+        kb_checks.check_pii_in_embeddings()
 
         # Verify HIGH finding for PII in bucket name
         high_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.HIGH]
@@ -440,7 +440,7 @@ class TestKBPIIDetection:
 
         # Run check
         kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
-        kb_checks.check_pii_exposure()
+        kb_checks.check_pii_in_embeddings()
 
         # Verify no HIGH findings (no PII detected)
         high_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.HIGH]
@@ -483,7 +483,7 @@ class TestKBOpenSearchAccessPolicies:
 
         # Run check
         kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
-        kb_checks.check_opensearch_access_policies()
+        kb_checks.check_vector_store_access_control()
 
         # Verify CRITICAL finding for wildcard principal
         critical_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.CRITICAL]
@@ -522,7 +522,7 @@ class TestKBOpenSearchAccessPolicies:
 
         # Run check
         kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
-        kb_checks.check_opensearch_access_policies()
+        kb_checks.check_vector_store_access_control()
 
         # Verify no CRITICAL findings (policy is restrictive)
         critical_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.CRITICAL]
