@@ -10,6 +10,7 @@ Licensed under GPL v3
 """
 
 import pytest
+from unittest.mock import MagicMock
 
 from tests.conftest import setup_agent_mock
 from wilma.checks.agents import AgentSecurityChecks
@@ -760,3 +761,313 @@ class TestAgentSecurityChecksInitialization:
         assert len(agents) == 2
         assert agents[0]['agentId'] == 'agent-1'
         assert agents[1]['agentId'] == 'agent-2'
+
+
+class TestAgentLambdaPermissions:
+    """Tests for check_agent_lambda_permissions()."""
+
+    def test_no_agents_no_findings(self, mock_checker):
+        """Test with no agents returns no findings."""
+        mock_checker.bedrock_agent.list_agents.return_value = {
+            'agentSummaries': []
+        }
+
+        agent_checks = AgentSecurityChecks(mock_checker)
+        findings = agent_checks.check_agent_lambda_permissions()
+
+        assert len(findings) == 0
+
+    def test_agent_with_public_lambda_critical_finding(self, mock_checker):
+        """Test Lambda with public access - CRITICAL finding."""
+        import json
+
+        setup_agent_mock(
+            mock_checker.bedrock_agent,
+            agent_id='agent-public',
+            agent_name='PublicAgent',
+            action_groups=[{
+                'id': 'ag-public',
+                'name': 'PublicActions',
+                'state': 'ENABLED',
+                'executor': {'lambda': 'arn:aws:lambda:us-east-1:123456789012:function:PublicFunction'}
+            }]
+        )
+
+        agent_checks = AgentSecurityChecks(mock_checker)
+
+        # Mock Lambda policy with public access
+        agent_checks.lambda_client.get_policy = MagicMock(return_value={
+            'Policy': json.dumps({
+                'Version': '2012-10-17',
+                'Statement': [{
+                    'Effect': 'Allow',
+                    'Principal': '*',
+                    'Action': 'lambda:InvokeFunction',
+                    'Resource': 'arn:aws:lambda:us-east-1:123456789012:function:PublicFunction'
+                }]
+            })
+        })
+
+        # Mock Lambda configuration (no sensitive env vars)
+        agent_checks.lambda_client.get_function_configuration = MagicMock(return_value={
+            'Environment': {'Variables': {}}
+        })
+
+        findings = agent_checks.check_agent_lambda_permissions()
+
+        assert len(findings) == 1
+        assert findings[0]['risk_level'] == RiskLevel.CRITICAL
+        assert 'public invocation access' in findings[0]['title']
+        assert findings[0]['details']['public_pattern'] == 'Principal: "*"'
+
+    def test_agent_with_lambda_lacking_source_restriction_high_finding(self, mock_checker):
+        """Test Lambda with bedrock service principal but no SourceArn - HIGH finding."""
+        import json
+
+        setup_agent_mock(
+            mock_checker.bedrock_agent,
+            agent_id='agent-broad',
+            agent_name='BroadAgent',
+            action_groups=[{
+                'id': 'ag-broad',
+                'name': 'BroadActions',
+                'state': 'ENABLED',
+                'executor': {'lambda': 'arn:aws:lambda:us-east-1:123456789012:function:BroadFunction'}
+            }]
+        )
+
+        agent_checks = AgentSecurityChecks(mock_checker)
+
+        # Mock Lambda policy with bedrock.amazonaws.com but no Condition
+        agent_checks.lambda_client.get_policy = MagicMock(return_value={
+            'Policy': json.dumps({
+                'Version': '2012-10-17',
+                'Statement': [{
+                    'Effect': 'Allow',
+                    'Principal': {'Service': 'bedrock.amazonaws.com'},
+                    'Action': 'lambda:InvokeFunction',
+                    'Resource': 'arn:aws:lambda:us-east-1:123456789012:function:BroadFunction'
+                }]
+            })
+        })
+
+        agent_checks.lambda_client.get_function_configuration = MagicMock(return_value={
+            'Environment': {'Variables': {}}
+        })
+
+        findings = agent_checks.check_agent_lambda_permissions()
+
+        assert len(findings) == 1
+        assert findings[0]['risk_level'] == RiskLevel.HIGH
+        assert 'lacks agent-specific restrictions' in findings[0]['title']
+
+    def test_agent_with_lambda_containing_secrets_high_finding(self, mock_checker):
+        """Test Lambda with secrets in environment variables - HIGH finding."""
+        import json
+
+        setup_agent_mock(
+            mock_checker.bedrock_agent,
+            agent_id='agent-secrets',
+            agent_name='SecretsAgent',
+            action_groups=[{
+                'id': 'ag-secrets',
+                'name': 'SecretsActions',
+                'state': 'ENABLED',
+                'executor': {'lambda': 'arn:aws:lambda:us-east-1:123456789012:function:SecretsFunction'}
+            }]
+        )
+
+        agent_checks = AgentSecurityChecks(mock_checker)
+
+        # Mock secure Lambda policy
+        agent_checks.lambda_client.get_policy = MagicMock(return_value={
+            'Policy': json.dumps({
+                'Version': '2012-10-17',
+                'Statement': [{
+                    'Effect': 'Allow',
+                    'Principal': {'Service': 'bedrock.amazonaws.com'},
+                    'Action': 'lambda:InvokeFunction',
+                    'Resource': 'arn:aws:lambda:us-east-1:123456789012:function:SecretsFunction',
+                    'Condition': {
+                        'ArnLike': {
+                            'AWS:SourceArn': 'arn:aws:bedrock:*:*:agent/agent-secrets'
+                        }
+                    }
+                }]
+            })
+        })
+
+        # Mock Lambda configuration with API key in env vars
+        agent_checks.lambda_client.get_function_configuration = MagicMock(return_value={
+            'Environment': {
+                'Variables': {
+                    'API_KEY': 'sk-1234567890abcdefghijklmnop',
+                    'NORMAL_VAR': 'value'
+                }
+            }
+        })
+
+        findings = agent_checks.check_agent_lambda_permissions()
+
+        assert len(findings) == 1
+        assert findings[0]['risk_level'] == RiskLevel.HIGH
+        assert 'potential secrets' in findings[0]['title']
+        assert findings[0]['details']['secret_count'] == 1
+
+    def test_agent_with_missing_lambda_function_high_finding(self, mock_checker):
+        """Test Lambda function not found - HIGH finding."""
+        from botocore.exceptions import ClientError
+
+        setup_agent_mock(
+            mock_checker.bedrock_agent,
+            agent_id='agent-missing',
+            agent_name='MissingAgent',
+            action_groups=[{
+                'id': 'ag-missing',
+                'name': 'MissingActions',
+                'state': 'ENABLED',
+                'executor': {'lambda': 'arn:aws:lambda:us-east-1:123456789012:function:MissingFunction'}
+            }]
+        )
+
+        agent_checks = AgentSecurityChecks(mock_checker)
+
+        # Mock Lambda not found error
+        agent_checks.lambda_client.get_policy = MagicMock(
+            side_effect=ClientError(
+                {'Error': {'Code': 'ResourceNotFoundException', 'Message': 'Function not found'}},
+                'GetPolicy'
+            )
+        )
+
+        findings = agent_checks.check_agent_lambda_permissions()
+
+        assert len(findings) == 1
+        assert findings[0]['risk_level'] == RiskLevel.HIGH
+        assert 'not found' in findings[0]['title']
+        assert findings[0]['details']['missing_function'] == 'MissingFunction'
+
+    def test_agent_with_secure_lambda_no_finding(self, mock_checker):
+        """Test Lambda with proper security - no findings."""
+        import json
+
+        setup_agent_mock(
+            mock_checker.bedrock_agent,
+            agent_id='agent-secure',
+            agent_name='SecureAgent',
+            action_groups=[{
+                'id': 'ag-secure',
+                'name': 'SecureActions',
+                'state': 'ENABLED',
+                'executor': {'lambda': 'arn:aws:lambda:us-east-1:123456789012:function:SecureFunction'}
+            }]
+        )
+
+        agent_checks = AgentSecurityChecks(mock_checker)
+
+        # Mock secure Lambda policy with proper restrictions
+        agent_checks.lambda_client.get_policy = MagicMock(return_value={
+            'Policy': json.dumps({
+                'Version': '2012-10-17',
+                'Statement': [{
+                    'Effect': 'Allow',
+                    'Principal': {'Service': 'bedrock.amazonaws.com'},
+                    'Action': 'lambda:InvokeFunction',
+                    'Resource': 'arn:aws:lambda:us-east-1:123456789012:function:SecureFunction',
+                    'Condition': {
+                        'ArnLike': {
+                            'AWS:SourceArn': 'arn:aws:bedrock:*:*:agent/agent-secure'
+                        }
+                    }
+                }]
+            })
+        })
+
+        # Mock Lambda configuration with no secrets
+        agent_checks.lambda_client.get_function_configuration = MagicMock(return_value={
+            'Environment': {
+                'Variables': {
+                    'LOG_LEVEL': 'INFO',
+                    'REGION': 'us-east-1'
+                }
+            }
+        })
+
+        findings = agent_checks.check_agent_lambda_permissions()
+
+        assert len(findings) == 0
+
+    def test_agent_lambda_deduplication(self, mock_checker):
+        """Test Lambda functions are only analyzed once even if used by multiple agents."""
+        import json
+
+        # Setup two agents using the same Lambda function
+        mock_checker.bedrock_agent.list_agents.return_value = {
+            'agentSummaries': [
+                {'agentId': 'agent-1', 'agentName': 'Agent1'},
+                {'agentId': 'agent-2', 'agentName': 'Agent2'}
+            ]
+        }
+
+        # Mock both agents to use the same Lambda
+        def get_agent_side_effect(agentId):
+            return {
+                'agent': {
+                    'agentId': agentId,
+                    'agentName': f'Agent{agentId[-1]}',
+                    'agentResourceRoleArn': f'arn:aws:iam::123456789012:role/Role-{agentId}'
+                }
+            }
+
+        def list_action_groups_side_effect(agentId, agentVersion, maxResults):
+            return {
+                'actionGroupSummaries': [{
+                    'actionGroupId': f'ag-{agentId}',
+                    'actionGroupName': f'Actions-{agentId}',
+                    'actionGroupState': 'ENABLED'
+                }]
+            }
+
+        def get_action_group_side_effect(agentId, actionGroupId, agentVersion):
+            return {
+                'agentActionGroup': {
+                    'actionGroupId': actionGroupId,
+                    'actionGroupName': f'Actions-{agentId}',
+                    'actionGroupExecutor': {
+                        'lambda': 'arn:aws:lambda:us-east-1:123456789012:function:SharedFunction'
+                    }
+                }
+            }
+
+        mock_checker.bedrock_agent.get_agent.side_effect = get_agent_side_effect
+        mock_checker.bedrock_agent.list_agent_action_groups.side_effect = list_action_groups_side_effect
+        mock_checker.bedrock_agent.get_agent_action_group.side_effect = get_action_group_side_effect
+
+        agent_checks = AgentSecurityChecks(mock_checker)
+
+        # Mock secure Lambda policy
+        get_policy_mock = MagicMock(return_value={
+            'Policy': json.dumps({
+                'Version': '2012-10-17',
+                'Statement': [{
+                    'Effect': 'Allow',
+                    'Principal': {'Service': 'bedrock.amazonaws.com'},
+                    'Action': 'lambda:InvokeFunction',
+                    'Condition': {
+                        'ArnLike': {'AWS:SourceArn': 'arn:aws:bedrock:*:*:agent/*'}
+                    }
+                }]
+            })
+        })
+        agent_checks.lambda_client.get_policy = get_policy_mock
+
+        get_config_mock = MagicMock(return_value={
+            'Environment': {'Variables': {}}
+        })
+        agent_checks.lambda_client.get_function_configuration = get_config_mock
+
+        findings = agent_checks.check_agent_lambda_permissions()
+
+        # Should only call get_policy once despite two agents using the same Lambda
+        assert get_policy_mock.call_count == 1
+        assert get_config_mock.call_count == 1

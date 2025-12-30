@@ -23,11 +23,13 @@ MITRE ATLAS: AML.T0051 (LLM Prompt Injection)
 See ROADMAP.md Section 1.1 for complete implementation details.
 """
 
+import json
+import re
 from typing import Dict, List
 
 from botocore.exceptions import ClientError
 
-from wilma.utils import PROMPT_INJECTION_PATTERNS, handle_aws_error, paginate_aws_results
+from wilma.utils import PII_PATTERNS, PROMPT_INJECTION_PATTERNS, handle_aws_error, paginate_aws_results
 
 from ..enums import RiskLevel
 
@@ -49,6 +51,7 @@ class AgentSecurityChecks:
         self.bedrock = checker.bedrock
         self.bedrock_agent = checker.session.client('bedrock-agent')
         self.iam = checker.iam
+        self.lambda_client = checker.session.client('lambda')
         self.findings = []
 
     def _get_all_agents(self) -> List[Dict]:
@@ -608,21 +611,363 @@ class AgentSecurityChecks:
 
         return findings
 
+    def _analyze_lambda_security(
+        self,
+        agent_name: str,
+        agent_id: str,
+        action_group_name: str,
+        lambda_arn: str
+    ) -> List[Dict]:
+        """
+        Analyze Lambda function security for agent action groups.
+
+        Detects security issues:
+        - Public Lambda invocation access
+        - Overly permissive resource-based policies
+        - Secrets in environment variables
+        - Missing resource restrictions
+
+        Args:
+            agent_name: Agent name for reporting
+            agent_id: Agent ID
+            action_group_name: Action group name
+            lambda_arn: Lambda function ARN
+
+        Returns:
+            List of security findings related to Lambda permissions
+        """
+        findings = []
+
+        # Extract function name from ARN
+        # ARN format: arn:aws:lambda:region:account:function:function-name
+        try:
+            function_name = lambda_arn.split(':')[-1] if ':' in lambda_arn else lambda_arn
+        except Exception:
+            function_name = lambda_arn
+
+        try:
+            # Check Lambda resource-based policy
+            try:
+                policy_response = self.lambda_client.get_policy(FunctionName=function_name)
+                policy_str = policy_response.get('Policy', '{}')
+                policy_doc = json.loads(policy_str)
+
+                # Analyze policy statements for public access or overly permissive principals
+                for statement in policy_doc.get('Statement', []):
+                    if statement.get('Effect') != 'Allow':
+                        continue
+
+                    principal = statement.get('Principal', {})
+
+                    # Check for public access patterns
+                    is_public = False
+                    public_pattern = None
+
+                    # Pattern 1: Principal: "*"
+                    if principal == '*':
+                        is_public = True
+                        public_pattern = 'Principal: "*"'
+                    # Pattern 2: Principal.AWS: "*"
+                    elif isinstance(principal, dict) and principal.get('AWS') == '*':
+                        is_public = True
+                        public_pattern = 'Principal.AWS: "*"'
+                    # Pattern 3: Principal.Service: "*"
+                    elif isinstance(principal, dict) and principal.get('Service') == '*':
+                        is_public = True
+                        public_pattern = 'Principal.Service: "*"'
+
+                    if is_public:
+                        findings.append({
+                            'risk_level': RiskLevel.CRITICAL,
+                            'title': 'Lambda function has public invocation access',
+                            'description': (
+                                f'Lambda function "{function_name}" used by agent "{agent_name}" '
+                                f'action group "{action_group_name}" has a resource-based policy that '
+                                f'allows public invocation ({public_pattern}). This allows ANYONE on the '
+                                f'internet to invoke the function, bypassing agent authorization controls. '
+                                f'Attackers could directly invoke action group functions without going '
+                                f'through the agent, potentially exposing sensitive operations or data.'
+                            ),
+                            'location': f'Agent: {agent_name}, Action Group: {action_group_name}',
+                            'resource': lambda_arn,
+                            'remediation': (
+                                f'Restrict Lambda resource-based policy to specific principals:\n\n'
+                                f'1. Remove public access from Lambda policy:\n'
+                                f'aws lambda remove-permission \\\n'
+                                f'  --function-name {function_name} \\\n'
+                                f'  --statement-id <PUBLIC_STATEMENT_ID>\n\n'
+                                f'2. Add specific agent service role principal:\n'
+                                f'aws lambda add-permission \\\n'
+                                f'  --function-name {function_name} \\\n'
+                                f'  --statement-id AllowBedrockAgent \\\n'
+                                f'  --action lambda:InvokeFunction \\\n'
+                                f'  --principal bedrock.amazonaws.com \\\n'
+                                f'  --source-arn arn:aws:bedrock:region:account:agent/{agent_id}'
+                            ),
+                            'details': {
+                                'agent_id': agent_id,
+                                'agent_name': agent_name,
+                                'action_group_name': action_group_name,
+                                'lambda_arn': lambda_arn,
+                                'lambda_function_name': function_name,
+                                'public_pattern': public_pattern,
+                                'owasp': 'LLM08 (Excessive Agency)'
+                            }
+                        })
+                        continue
+
+                    # Check for overly broad service principal without source ARN restriction
+                    if isinstance(principal, dict):
+                        service_principal = principal.get('Service', '')
+                        if 'bedrock.amazonaws.com' in service_principal:
+                            condition = statement.get('Condition', {})
+                            # Check if SourceArn condition restricts to specific agent
+                            source_arn_condition = condition.get('ArnLike', {}).get('AWS:SourceArn') or \
+                                                 condition.get('StringEquals', {}).get('AWS:SourceArn')
+
+                            if not source_arn_condition:
+                                findings.append({
+                                    'risk_level': RiskLevel.HIGH,
+                                    'title': 'Lambda function lacks agent-specific restrictions',
+                                    'description': (
+                                        f'Lambda function "{function_name}" allows invocation from bedrock.amazonaws.com '
+                                        f'but does not restrict access to specific agent ARN. This allows ANY Bedrock '
+                                        f'agent in the account to invoke this function, not just the intended agent '
+                                        f'"{agent_name}". Add a Condition with AWS:SourceArn to restrict access.'
+                                    ),
+                                    'location': f'Agent: {agent_name}, Action Group: {action_group_name}',
+                                    'resource': lambda_arn,
+                                    'remediation': (
+                                        f'Update Lambda policy to include agent-specific condition:\n'
+                                        f'aws lambda add-permission \\\n'
+                                        f'  --function-name {function_name} \\\n'
+                                        f'  --statement-id AllowSpecificAgent \\\n'
+                                        f'  --action lambda:InvokeFunction \\\n'
+                                        f'  --principal bedrock.amazonaws.com \\\n'
+                                        f'  --source-arn arn:aws:bedrock:*:*:agent/{agent_id}'
+                                    ),
+                                    'details': {
+                                        'agent_id': agent_id,
+                                        'agent_name': agent_name,
+                                        'action_group_name': action_group_name,
+                                        'lambda_arn': lambda_arn,
+                                        'owasp': 'LLM08 (Excessive Agency)'
+                                    }
+                                })
+
+            except ClientError as e:
+                error_code = e.response['Error']['Code']
+                if error_code == 'ResourceNotFoundException':
+                    findings.append({
+                        'risk_level': RiskLevel.HIGH,
+                        'title': 'Lambda function not found',
+                        'description': (
+                            f'Agent "{agent_name}" action group "{action_group_name}" references '
+                            f'Lambda function "{function_name}" which does not exist or is not accessible. '
+                            f'The action group will fail at runtime.'
+                        ),
+                        'location': f'Agent: {agent_name}, Action Group: {action_group_name}',
+                        'resource': lambda_arn,
+                        'remediation': (
+                            f'Either create the missing Lambda function or update the action group '
+                            f'to reference an existing function.'
+                        ),
+                        'details': {
+                            'agent_id': agent_id,
+                            'agent_name': agent_name,
+                            'action_group_name': action_group_name,
+                            'lambda_arn': lambda_arn,
+                            'missing_function': function_name
+                        }
+                    })
+                elif error_code != 'ResourceConflictException':  # No policy attached is not an error
+                    if error_code != 'AccessDeniedException':
+                        print(f"[WARN] Could not check Lambda policy for {function_name}: {error_code}")
+
+            # Check Lambda environment variables for secrets
+            try:
+                config_response = self.lambda_client.get_function_configuration(
+                    FunctionName=function_name
+                )
+
+                env_vars = config_response.get('Environment', {}).get('Variables', {})
+
+                if env_vars:
+                    detected_secrets = []
+
+                    for var_name, var_value in env_vars.items():
+                        # Scan for PII patterns in environment variable values
+                        for pattern_name, pattern_regex in PII_PATTERNS.items():
+                            if re.search(pattern_regex, var_value):
+                                detected_secrets.append({
+                                    'variable': var_name,
+                                    'pattern': pattern_name,
+                                    'value_preview': var_value[:20] + '...' if len(var_value) > 20 else var_value
+                                })
+
+                        # Check for common secret indicators in variable names
+                        secret_indicators = [
+                            'key', 'secret', 'token', 'password', 'api_key',
+                            'apikey', 'access_key', 'private', 'credential'
+                        ]
+                        if any(indicator in var_name.lower() for indicator in secret_indicators):
+                            # Check if value looks like a real secret (not placeholder)
+                            if var_value and len(var_value) > 10 and not var_value.startswith('${'):
+                                detected_secrets.append({
+                                    'variable': var_name,
+                                    'pattern': 'Suspicious variable name',
+                                    'value_preview': var_value[:20] + '...' if len(var_value) > 20 else var_value
+                                })
+
+                    if detected_secrets:
+                        findings.append({
+                            'risk_level': RiskLevel.HIGH,
+                            'title': 'Lambda environment variables contain potential secrets',
+                            'description': (
+                                f'Lambda function "{function_name}" used by agent "{agent_name}" has '
+                                f'environment variables that appear to contain secrets or sensitive data. '
+                                f'Detected {len(detected_secrets)} potential secret(s). Environment variables '
+                                f'are stored unencrypted in Lambda configuration and visible to anyone with '
+                                f'lambda:GetFunctionConfiguration permission. Use AWS Secrets Manager or '
+                                f'Parameter Store instead.'
+                            ),
+                            'location': f'Agent: {agent_name}, Lambda: {function_name}',
+                            'resource': lambda_arn,
+                            'remediation': (
+                                f'Move secrets to AWS Secrets Manager:\n\n'
+                                f'1. Store secrets in Secrets Manager:\n'
+                                f'aws secretsmanager create-secret \\\n'
+                                f'  --name {function_name}/api-key \\\n'
+                                f'  --secret-string "{{...}}"\n\n'
+                                f'2. Update Lambda to retrieve from Secrets Manager:\n'
+                                f'   - Add secretsmanager:GetSecretValue to execution role\n'
+                                f'   - Update code to call GetSecretValue API\n\n'
+                                f'3. Remove secrets from environment variables'
+                            ),
+                            'details': {
+                                'agent_id': agent_id,
+                                'agent_name': agent_name,
+                                'action_group_name': action_group_name,
+                                'lambda_arn': lambda_arn,
+                                'detected_secrets': detected_secrets[:5],  # Limit to first 5
+                                'secret_count': len(detected_secrets),
+                                'owasp': 'LLM08 (Excessive Agency)'
+                            }
+                        })
+
+            except ClientError as e:
+                error_code = e.response['Error']['Code']
+                if error_code not in ['ResourceNotFoundException', 'AccessDeniedException']:
+                    print(f"[WARN] Could not check Lambda configuration for {function_name}: {error_code}")
+
+        except Exception as e:
+            print(f"[WARN] Error analyzing Lambda {function_name}: {str(e)}")
+
+        return findings
+
     def check_agent_lambda_permissions(self) -> List[Dict]:
         """
         Validate Lambda functions used by action groups have proper permissions.
 
+        WHY CRITICAL: Lambda functions that are publicly invocable or have
+        overly permissive resource-based policies can be exploited if the agent
+        is compromised. Environment variables containing secrets (API keys, tokens)
+        can leak sensitive data to attackers who gain control of the agent.
+
+        Checks: Lambda resource policies, environment variables, public access
+        Risk: HIGH for public Lambdas or secrets in environment variables
+        OWASP: LLM08 (Excessive Agency)
+
         Returns:
             List of security findings
-
-        TODO: Implement check for:
-        - List all agents and their action groups
-        - For each Lambda function ARN, check IAM permissions
-        - Verify Lambda resource-based policy restricts access
-        - Check for environment variables containing secrets
-        - Risk Score: 8/10 for overly permissive Lambda access
         """
-        raise NotImplementedError("See ROADMAP.md Section 1.1.4")
+        findings = []
+
+        try:
+            # List all agents with pagination
+            agents = self._get_all_agents()
+
+            if not agents:
+                return findings
+
+            print(f"[CHECK] Analyzing Lambda permissions for action groups across {len(agents)} agents...")
+
+            # Track checked Lambda functions to avoid duplicate analysis
+            checked_lambdas = set()
+
+            for agent in agents:
+                agent_id = agent['agentId']
+                agent_name = agent.get('agentName', agent_id)
+
+                try:
+                    # Get action groups for this agent
+                    action_groups_response = self.bedrock_agent.list_agent_action_groups(
+                        agentId=agent_id,
+                        agentVersion='DRAFT',
+                        maxResults=MAX_RESULTS_PER_PAGE
+                    )
+
+                    action_group_summaries = action_groups_response.get('actionGroupSummaries', [])
+
+                    if not action_group_summaries:
+                        continue
+
+                    for ag_summary in action_group_summaries:
+                        ag_id = ag_summary['actionGroupId']
+                        ag_name = ag_summary.get('actionGroupName', ag_id)
+                        ag_state = ag_summary.get('actionGroupState', 'UNKNOWN')
+
+                        # Skip disabled action groups
+                        if ag_state == 'DISABLED':
+                            continue
+
+                        try:
+                            # Get detailed action group configuration
+                            ag_details = self.bedrock_agent.get_agent_action_group(
+                                agentId=agent_id,
+                                agentVersion='DRAFT',
+                                actionGroupId=ag_id
+                            )
+
+                            ag_config = ag_details.get('agentActionGroup', {})
+                            executor_config = ag_config.get('actionGroupExecutor', {})
+
+                            # Extract Lambda ARN if this action group uses Lambda
+                            lambda_arn = executor_config.get('lambda')
+
+                            if not lambda_arn or lambda_arn in checked_lambdas:
+                                continue
+
+                            checked_lambdas.add(lambda_arn)
+
+                            # Analyze this Lambda function
+                            lambda_findings = self._analyze_lambda_security(
+                                agent_name, agent_id, ag_name, lambda_arn
+                            )
+                            findings.extend(lambda_findings)
+
+                        except ClientError as e:
+                            error_code = e.response['Error']['Code']
+                            if error_code in ['ResourceNotFoundException', 'AccessDeniedException']:
+                                print(f"[WARN] Cannot access action group {ag_name}: {error_code}")
+                            else:
+                                handle_aws_error(e, f"getting action group {ag_name}")
+                        except Exception as e:
+                            print(f"[ERROR] Failed to analyze action group {ag_name}: {str(e)}")
+
+                except ClientError as e:
+                    error_code = e.response['Error']['Code']
+                    if error_code == 'ResourceNotFoundException':
+                        print(f"[WARN] Agent {agent_name} not found (may have been deleted)")
+                    else:
+                        handle_aws_error(e, f"listing action groups for agent {agent_name}")
+                except Exception as e:
+                    print(f"[ERROR] Failed to analyze agent {agent_name}: {str(e)}")
+
+        except Exception as e:
+            print(f"[ERROR] Failed to check agent Lambda permissions: {str(e)}")
+
+        return findings
 
     def check_agent_memory_encryption(self) -> List[Dict]:
         """
@@ -894,9 +1239,9 @@ class AgentSecurityChecks:
         self.findings.extend(self.check_agent_guardrails())
         self.findings.extend(self.check_agent_prompt_injection_patterns())
         self.findings.extend(self.check_agent_service_roles())
+        self.findings.extend(self.check_agent_lambda_permissions())
 
         # TODO: Uncomment as each check is implemented
-        # self.findings.extend(self.check_agent_lambda_permissions())
         # self.findings.extend(self.check_agent_memory_encryption())
         # self.findings.extend(self.check_agent_knowledge_base_access())
         # self.findings.extend(self.check_agent_tags())
