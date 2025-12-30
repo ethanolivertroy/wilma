@@ -151,6 +151,20 @@ def mock_checker(aws_credentials, mock_bedrock_client, mock_bedrock_agent_client
         checker.bedrock = mock_bedrock_client
         checker.bedrock_agent = mock_bedrock_agent_client
 
+        # Mock session.client to return our mocked bedrock-agent client
+        original_session_client = checker.session.client
+
+        def mock_session_client(service_name, **kwargs):
+            if service_name == 'bedrock-agent':
+                return mock_bedrock_agent_client
+            elif service_name == 'bedrock':
+                return mock_bedrock_client
+            else:
+                # For other services (s3, iam, etc.), use Moto
+                return original_session_client(service_name, **kwargs)
+
+        checker.session.client = mock_session_client
+
         # S3, IAM, EC2, Logs clients will use Moto automatically
         # since they were created inside mock_aws() context
 
@@ -308,3 +322,75 @@ def setup_knowledge_base_mock(mock_client, kb_id='test-kb', kb_name='Test KB',
             'storageConfiguration': storage_config
         }
     }
+
+
+def setup_agent_mock(mock_client, agent_id='test-agent', agent_name='Test Agent',
+                     action_groups=None, has_guardrail=False, guardrail_id=None):
+    """
+    Helper to configure Bedrock Agent client mock with agent configuration.
+
+    Args:
+        mock_client: The MagicMock Bedrock Agent client
+        agent_id: Agent ID
+        agent_name: Agent name
+        action_groups: List of action group configurations (optional)
+        has_guardrail: Whether agent has guardrail configured
+        guardrail_id: Guardrail identifier (if has_guardrail=True)
+    """
+    # List agents response
+    mock_client.list_agents.return_value = {
+        'agentSummaries': [
+            {
+                'agentId': agent_id,
+                'agentName': agent_name,
+                'agentStatus': 'PREPARED'
+            }
+        ]
+    }
+
+    # Get agent details
+    agent_config = {
+        'agentId': agent_id,
+        'agentName': agent_name,
+        'agentStatus': 'PREPARED',
+        'agentResourceRoleArn': f'arn:aws:iam::123456789012:role/AgentRole-{agent_id}'
+    }
+
+    if has_guardrail and guardrail_id:
+        agent_config['guardrailConfiguration'] = {
+            'guardrailIdentifier': guardrail_id,
+            'guardrailVersion': 'DRAFT'
+        }
+
+    mock_client.get_agent.return_value = {'agent': agent_config}
+
+    # Setup action groups if provided
+    if action_groups is None:
+        action_groups = []
+
+    mock_client.list_agent_action_groups.return_value = {
+        'actionGroupSummaries': [
+            {
+                'actionGroupId': ag.get('id', f'ag-{idx}'),
+                'actionGroupName': ag.get('name', f'ActionGroup{idx}'),
+                'actionGroupState': ag.get('state', 'ENABLED')
+            }
+            for idx, ag in enumerate(action_groups)
+        ]
+    }
+
+    # Setup get_agent_action_group responses using side_effect
+    def get_action_group_side_effect(agentId, actionGroupId, **kwargs):
+        for ag in action_groups:
+            if ag.get('id') == actionGroupId:
+                return {
+                    'agentActionGroup': {
+                        'actionGroupId': ag.get('id'),
+                        'actionGroupName': ag.get('name'),
+                        'actionGroupExecutor': ag.get('executor', {'customControl': 'RETURN_CONTROL'})
+                    }
+                }
+        return {}
+
+    if action_groups:
+        mock_client.get_agent_action_group.side_effect = get_action_group_side_effect

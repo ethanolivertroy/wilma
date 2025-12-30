@@ -1,0 +1,237 @@
+"""
+Tests for AWS Bedrock Agents Security Checks
+
+Uses hybrid Moto + MagicMock approach:
+- Moto: IAM, CloudWatch Logs, Lambda (fully supported)
+- MagicMock: bedrock-agent client (incomplete Moto support)
+
+Copyright (C) 2025  Ethan Troy
+Licensed under GPL v3
+"""
+
+import pytest
+
+from tests.conftest import setup_agent_mock
+from wilma.checks.agents import AgentSecurityChecks
+from wilma.enums import RiskLevel
+
+
+class TestAgentActionConfirmation:
+    """Tests for check_agent_action_confirmation()"""
+
+    def test_no_agents(self, mock_checker):
+        """Test when no agents exist - should return empty findings."""
+        # Configure mock to return no agents
+        mock_checker.bedrock_agent.list_agents.return_value = {
+            'agentSummaries': []
+        }
+
+        # Run check
+        agent_checks = AgentSecurityChecks(mock_checker)
+        findings = agent_checks.check_agent_action_confirmation()
+
+        # Verify
+        assert findings == []
+
+    def test_agent_with_return_control_no_finding(self, mock_checker):
+        """Test agent with RETURN_CONTROL (requires confirmation) - no finding."""
+        # Setup agent with RETURN_CONTROL action group
+        setup_agent_mock(
+            mock_checker.bedrock_agent,
+            agent_id='agent-123',
+            agent_name='SafeAgent',
+            action_groups=[
+                {
+                    'id': 'ag-456',
+                    'name': 'SafeActions',
+                    'state': 'ENABLED',
+                    'executor': {'customControl': 'RETURN_CONTROL'}
+                }
+            ]
+        )
+
+        # Run check
+        agent_checks = AgentSecurityChecks(mock_checker)
+        findings = agent_checks.check_agent_action_confirmation()
+
+        # Verify - no findings because RETURN_CONTROL is good
+        assert len(findings) == 0
+
+    def test_agent_with_lambda_execution_critical_finding(self, mock_checker):
+        """Test agent with direct Lambda execution - CRITICAL finding."""
+        # Setup agent with direct Lambda execution
+        setup_agent_mock(
+            mock_checker.bedrock_agent,
+            agent_id='agent-999',
+            agent_name='DangerousAgent',
+            action_groups=[
+                {
+                    'id': 'ag-666',
+                    'name': 'UnsafeActions',
+                    'state': 'ENABLED',
+                    'executor': {'lambda': 'arn:aws:lambda:us-east-1:123456789012:function:DangerousFunction'}
+                }
+            ]
+        )
+
+        # Run check
+        agent_checks = AgentSecurityChecks(mock_checker)
+        findings = agent_checks.check_agent_action_confirmation()
+
+        # Verify - should have CRITICAL finding
+        assert len(findings) == 1
+        finding = findings[0]
+        assert finding['risk_level'] == RiskLevel.CRITICAL
+        assert 'lacks confirmation requirement' in finding['title']
+        assert 'DangerousAgent' in finding['description']
+        assert 'UnsafeActions' in finding['description']
+        assert finding['details']['agent_id'] == 'agent-999'
+        assert finding['details']['action_group_id'] == 'ag-666'
+        assert finding['details']['executor_type'] == 'LAMBDA'
+        assert finding['details']['requires_confirmation'] is False
+        assert 'LLM08' in finding['details']['owasp']
+        assert 'bedrock-agent update-agent-action-group' in finding['remediation']
+
+    def test_agent_with_disabled_action_group_skipped(self, mock_checker):
+        """Test that disabled action groups are skipped."""
+        # Setup agent with disabled action group
+        setup_agent_mock(
+            mock_checker.bedrock_agent,
+            agent_id='agent-777',
+            agent_name='TestAgent',
+            action_groups=[
+                {
+                    'id': 'ag-disabled',
+                    'name': 'DisabledActions',
+                    'state': 'DISABLED',  # This should be skipped
+                    'executor': {'lambda': 'arn:aws:lambda:us-east-1:123456789012:function:SomeFunc'}
+                }
+            ]
+        )
+
+        # Run check
+        agent_checks = AgentSecurityChecks(mock_checker)
+        findings = agent_checks.check_agent_action_confirmation()
+
+        # Verify - no findings because disabled groups are skipped
+        assert len(findings) == 0
+
+    def test_multiple_agents_mixed_configs(self, mock_checker):
+        """Test multiple agents with different configurations."""
+        # Setup multiple agents with different configs
+        mock_checker.bedrock_agent.list_agents.return_value = {
+            'agentSummaries': [
+                {'agentId': 'agent-safe', 'agentName': 'SafeAgent', 'agentStatus': 'PREPARED'},
+                {'agentId': 'agent-unsafe', 'agentName': 'UnsafeAgent', 'agentStatus': 'PREPARED'}
+            ]
+        }
+
+        # Mock action groups for each agent
+        def list_action_groups_side_effect(agentId, **kwargs):
+            if agentId == 'agent-safe':
+                return {
+                    'actionGroupSummaries': [{
+                        'actionGroupId': 'ag-safe',
+                        'actionGroupName': 'SafeActions',
+                        'actionGroupState': 'ENABLED'
+                    }]
+                }
+            elif agentId == 'agent-unsafe':
+                return {
+                    'actionGroupSummaries': [{
+                        'actionGroupId': 'ag-unsafe',
+                        'actionGroupName': 'UnsafeActions',
+                        'actionGroupState': 'ENABLED'
+                    }]
+                }
+            return {'actionGroupSummaries': []}
+
+        mock_checker.bedrock_agent.list_agent_action_groups.side_effect = list_action_groups_side_effect
+
+        # Mock action group details
+        def get_action_group_side_effect(agentId, actionGroupId, **kwargs):
+            if actionGroupId == 'ag-safe':
+                return {
+                    'agentActionGroup': {
+                        'actionGroupId': 'ag-safe',
+                        'actionGroupName': 'SafeActions',
+                        'actionGroupExecutor': {'customControl': 'RETURN_CONTROL'}
+                    }
+                }
+            elif actionGroupId == 'ag-unsafe':
+                return {
+                    'agentActionGroup': {
+                        'actionGroupId': 'ag-unsafe',
+                        'actionGroupName': 'UnsafeActions',
+                        'actionGroupExecutor': {'lambda': 'arn:aws:lambda:us-east-1:123456789012:function:BadFunc'}
+                    }
+                }
+            return {}
+
+        mock_checker.bedrock_agent.get_agent_action_group.side_effect = get_action_group_side_effect
+
+        # Run check
+        agent_checks = AgentSecurityChecks(mock_checker)
+        findings = agent_checks.check_agent_action_confirmation()
+
+        # Verify - should have 1 finding (only for unsafe agent)
+        assert len(findings) == 1
+        finding = findings[0]
+        assert finding['risk_level'] == RiskLevel.CRITICAL
+        assert finding['details']['agent_id'] == 'agent-unsafe'
+        assert finding['details']['action_group_id'] == 'ag-unsafe'
+
+    def test_agent_with_no_action_groups(self, mock_checker):
+        """Test agent with no action groups - should not create findings."""
+        # Setup agent with no action groups
+        setup_agent_mock(
+            mock_checker.bedrock_agent,
+            agent_id='agent-empty',
+            agent_name='EmptyAgent',
+            action_groups=[]  # No action groups
+        )
+
+        # Run check
+        agent_checks = AgentSecurityChecks(mock_checker)
+        findings = agent_checks.check_agent_action_confirmation()
+
+        # Verify
+        assert len(findings) == 0
+
+
+class TestAgentSecurityChecksInitialization:
+    """Tests for AgentSecurityChecks class initialization."""
+
+    def test_init_creates_clients(self, mock_checker):
+        """Test that initialization creates all necessary clients."""
+        agent_checks = AgentSecurityChecks(mock_checker)
+
+        assert agent_checks.checker is mock_checker
+        assert agent_checks.bedrock is mock_checker.bedrock
+        # bedrock_agent is recreated in __init__, so we can't test identity
+        assert agent_checks.iam is mock_checker.iam
+        assert agent_checks.findings == []
+
+    def test_get_all_agents_pagination(self, mock_checker):
+        """Test _get_all_agents() handles pagination correctly."""
+        # Setup mock with 2 agents
+        setup_agent_mock(
+            mock_checker.bedrock_agent,
+            agent_id='agent-1',
+            agent_name='Agent1'
+        )
+
+        # Manually override to return multiple agents
+        mock_checker.bedrock_agent.list_agents.return_value = {
+            'agentSummaries': [
+                {'agentId': 'agent-1', 'agentName': 'Agent1'},
+                {'agentId': 'agent-2', 'agentName': 'Agent2'}
+            ]
+        }
+
+        agent_checks = AgentSecurityChecks(mock_checker)
+        agents = agent_checks._get_all_agents()
+
+        assert len(agents) == 2
+        assert agents[0]['agentId'] == 'agent-1'
+        assert agents[1]['agentId'] == 'agent-2'
