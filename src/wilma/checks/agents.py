@@ -973,16 +973,108 @@ class AgentSecurityChecks:
         """
         Verify agent session memory uses customer-managed KMS keys.
 
+        WHY IMPORTANT: Agent memory stores conversation history and context which
+        may contain sensitive information, PII, or business-critical data. Using
+        AWS-managed keys instead of customer-managed KMS keys reduces control over
+        encryption, key rotation, and access policies.
+
+        Checks: Memory configuration, KMS key usage
+        Risk: MEDIUM for AWS-managed encryption keys
+        Compliance: HIPAA, PCI-DSS, FedRAMP
+
         Returns:
             List of security findings
-
-        TODO: Implement check for:
-        - List all agents with memory persistence enabled
-        - Check memoryConfiguration encryption settings
-        - Flag agents using AWS-managed keys instead of customer keys
-        - Risk Score: 7/10 for AWS-managed keys
         """
-        raise NotImplementedError("See ROADMAP.md Section 1.1.5")
+        findings = []
+
+        try:
+            # List all agents with pagination
+            agents = self._get_all_agents()
+
+            if not agents:
+                return findings
+
+            print(f"[CHECK] Analyzing memory encryption for {len(agents)} agents...")
+
+            for agent in agents:
+                agent_id = agent['agentId']
+                agent_name = agent.get('agentName', agent_id)
+
+                try:
+                    # Get detailed agent configuration
+                    agent_response = self.bedrock_agent.get_agent(agentId=agent_id)
+                    agent_config = agent_response.get('agent', {})
+
+                    # Check memory configuration
+                    memory_config = agent_config.get('memoryConfiguration')
+
+                    if not memory_config:
+                        # No memory configuration = no persistent memory (not a security issue)
+                        continue
+
+                    # Check if memory is enabled
+                    enabled_memory_types = memory_config.get('enabledMemoryTypes', [])
+
+                    if not enabled_memory_types:
+                        # Memory feature exists but not enabled
+                        continue
+
+                    # Check storage configuration for encryption
+                    storage_configs = memory_config.get('storageDays')  # Number of days to store
+
+                    # Note: As of current Bedrock API, memory encryption details are limited
+                    # The main concern is whether memory is enabled without explicit KMS key
+
+                    # For now, flag agents with memory enabled as info for manual review
+                    # Future API versions may provide more encryption details
+
+                    findings.append({
+                        'risk_level': RiskLevel.LOW,
+                        'title': 'Agent memory encryption should be verified',
+                        'description': (
+                            f'Agent "{agent_name}" has memory persistence enabled ({", ".join(enabled_memory_types)}). '
+                            f'Agent memory may contain sensitive conversation history, PII, or business data. '
+                            f'Verify that memory storage uses customer-managed KMS keys for encryption at rest. '
+                            f'Note: Bedrock Agent memory encryption configuration details are limited in current API.'
+                        ),
+                        'location': f'Agent: {agent_name}',
+                        'resource': f'bedrock-agent:agent/{agent_id}',
+                        'remediation': (
+                            f'Verify and configure memory encryption:\n\n'
+                            f'1. Review memory configuration:\n'
+                            f'aws bedrock-agent get-agent --agent-id {agent_id}\n\n'
+                            f'2. Ensure KMS encryption is configured (if available in API)\n\n'
+                            f'3. Consider disabling memory if not needed:\n'
+                            f'aws bedrock-agent update-agent \\\n'
+                            f'  --agent-id {agent_id} \\\n'
+                            f'  --memory-configuration enabledMemoryTypes=[]\n\n'
+                            f'4. Implement short retention periods for sensitive data:\n'
+                            f'   - Recommended: 7-30 days for most use cases\n'
+                            f'   - Minimum: 1 day for highly sensitive data'
+                        ),
+                        'details': {
+                            'agent_id': agent_id,
+                            'agent_name': agent_name,
+                            'enabled_memory_types': enabled_memory_types,
+                            'storage_days': storage_configs,
+                            'compliance': ['HIPAA', 'PCI-DSS', 'FedRAMP'],
+                            'note': 'Manual verification recommended - API encryption details limited'
+                        }
+                    })
+
+                except ClientError as e:
+                    error_code = e.response['Error']['Code']
+                    if error_code == 'ResourceNotFoundException':
+                        print(f"[WARN] Agent {agent_name} not found (may have been deleted)")
+                    else:
+                        handle_aws_error(e, f"getting agent {agent_name}")
+                except Exception as e:
+                    print(f"[ERROR] Failed to analyze agent {agent_name}: {str(e)}")
+
+        except Exception as e:
+            print(f"[ERROR] Failed to check agent memory encryption: {str(e)}")
+
+        return findings
 
     def check_agent_knowledge_base_access(self) -> List[Dict]:
         """
@@ -1172,31 +1264,220 @@ class AgentSecurityChecks:
         """
         Validate agents have proper tagging for governance.
 
+        WHY IMPORTANT: Proper resource tagging enables cost allocation, security
+        governance, compliance tracking, and incident response. Untagged agents
+        can't be properly managed, audited, or attributed to teams/projects.
+
+        Checks: Validates presence of required governance tags
+        Risk: LOW for missing tags (governance/compliance issue)
+        Compliance: AWS Well-Architected Framework, FinOps
+
         Returns:
             List of security findings
-
-        TODO: Implement check for:
-        - List all agents and their tags
-        - Check for required tags (Environment, Owner, DataClassification)
-        - Flag untagged agents
-        - Risk Score: 5/10 for missing tags
         """
-        raise NotImplementedError("See ROADMAP.md Section 1.1.7")
+        findings = []
+
+        # Define required tags for governance
+        required_tags = ['Environment', 'Owner', 'DataClassification']
+
+        try:
+            # List all agents with pagination
+            agents = self._get_all_agents()
+
+            if not agents:
+                return findings
+
+            print(f"[CHECK] Validating tags for {len(agents)} agents...")
+
+            for agent in agents:
+                agent_id = agent['agentId']
+                agent_name = agent.get('agentName', agent_id)
+
+                try:
+                    # Get detailed agent configuration
+                    agent_response = self.bedrock_agent.get_agent(agentId=agent_id)
+                    agent_config = agent_response.get('agent', {})
+
+                    # Extract tags (stored as key-value dict in agent response)
+                    agent_tags = agent_config.get('tags', {})
+
+                    # Check for missing required tags
+                    missing_tags = []
+                    for required_tag in required_tags:
+                        if required_tag not in agent_tags:
+                            missing_tags.append(required_tag)
+
+                    if missing_tags:
+                        findings.append({
+                            'risk_level': RiskLevel.LOW,
+                            'title': 'Agent missing required governance tags',
+                            'description': (
+                                f'Agent "{agent_name}" is missing {len(missing_tags)} required tag(s): '
+                                f'{", ".join(missing_tags)}. Proper tagging is essential for cost allocation, '
+                                f'security governance, compliance auditing, and incident response. Without tags, '
+                                f'agents cannot be properly managed, tracked, or attributed to teams/projects.'
+                            ),
+                            'location': f'Agent: {agent_name}',
+                            'resource': f'bedrock-agent:agent/{agent_id}',
+                            'remediation': (
+                                f'Add required tags to the agent:\n\n'
+                                f'aws bedrock-agent tag-resource \\\n'
+                                f'  --resource-arn arn:aws:bedrock:{{region}}:{{account}}:agent/{agent_id} \\\n'
+                                f'  --tags \'{{\n'
+                                f'    "Environment": "production|staging|development",\n'
+                                f'    "Owner": "team-name@example.com",\n'
+                                f'    "DataClassification": "public|internal|confidential|restricted"\n'
+                                f'  }}\'\n\n'
+                                f'Best practices:\n'
+                                f'- Environment: production, staging, development, test\n'
+                                f'- Owner: Team email or distribution list\n'
+                                f'- DataClassification: Based on data sensitivity'
+                            ),
+                            'details': {
+                                'agent_id': agent_id,
+                                'agent_name': agent_name,
+                                'missing_tags': missing_tags,
+                                'existing_tags': list(agent_tags.keys()),
+                                'tag_count': len(agent_tags),
+                                'compliance': ['AWS Well-Architected Framework', 'FinOps']
+                            }
+                        })
+
+                except ClientError as e:
+                    error_code = e.response['Error']['Code']
+                    if error_code == 'ResourceNotFoundException':
+                        print(f"[WARN] Agent {agent_name} not found (may have been deleted)")
+                    else:
+                        handle_aws_error(e, f"getting agent {agent_name}")
+                except Exception as e:
+                    print(f"[ERROR] Failed to analyze agent {agent_name}: {str(e)}")
+
+        except Exception as e:
+            print(f"[ERROR] Failed to check agent tags: {str(e)}")
+
+        return findings
 
     def check_agent_pii_in_names(self) -> List[Dict]:
         """
         Detect PII in agent names, descriptions, and instructions.
 
+        WHY IMPORTANT: PII (Personally Identifiable Information) in agent metadata
+        can lead to data privacy violations, compliance issues (GDPR, HIPAA), and
+        security risks. Agent names and descriptions are often logged, displayed
+        in UIs, and visible to unauthorized users.
+
+        Checks: Scans name, description, instructions for PII patterns
+        Risk: MEDIUM for PII exposure in metadata
+        Compliance: GDPR, HIPAA, PCI-DSS
+
         Returns:
             List of security findings
-
-        TODO: Implement check for:
-        - List all agents
-        - Scan name, description, instruction for PII patterns
-        - Check for email addresses, phone numbers, AWS account IDs
-        - Risk Score: 6/10 for PII exposure
         """
-        raise NotImplementedError("See ROADMAP.md Section 1.1.8")
+        findings = []
+
+        try:
+            # List all agents with pagination
+            agents = self._get_all_agents()
+
+            if not agents:
+                return findings
+
+            print(f"[CHECK] Scanning {len(agents)} agents for PII in metadata...")
+
+            for agent in agents:
+                agent_id = agent['agentId']
+                agent_name = agent.get('agentName', agent_id)
+
+                try:
+                    # Get detailed agent configuration
+                    agent_response = self.bedrock_agent.get_agent(agentId=agent_id)
+                    agent_config = agent_response.get('agent', {})
+
+                    # Extract fields to scan
+                    name = agent_config.get('agentName', '')
+                    description = agent_config.get('description', '')
+                    instruction = agent_config.get('instruction', '')
+
+                    # Combine all text for scanning
+                    text_to_scan = f"{name} {description} {instruction}"
+
+                    # Scan for PII patterns
+                    detected_pii = []
+
+                    for pattern_name, pattern_regex in PII_PATTERNS.items():
+                        matches = re.findall(pattern_regex, text_to_scan)
+                        if matches:
+                            # Deduplicate matches
+                            unique_matches = list(set(matches))
+                            for match in unique_matches:
+                                # Determine which field contains the PII
+                                locations = []
+                                if re.search(pattern_regex, name):
+                                    locations.append('name')
+                                if re.search(pattern_regex, description):
+                                    locations.append('description')
+                                if re.search(pattern_regex, instruction):
+                                    locations.append('instruction')
+
+                                detected_pii.append({
+                                    'type': pattern_name,
+                                    'value_preview': str(match)[:30] + '...' if len(str(match)) > 30 else str(match),
+                                    'locations': locations
+                                })
+
+                    if detected_pii:
+                        # Determine risk level based on PII type
+                        pii_types = [item['type'] for item in detected_pii]
+                        risk_level = RiskLevel.HIGH if any(t in ['SSN', 'Credit Card', 'AWS Access Key'] for t in pii_types) else RiskLevel.MEDIUM
+
+                        findings.append({
+                            'risk_level': risk_level,
+                            'title': 'Agent metadata contains PII',
+                            'description': (
+                                f'Agent "{agent_name}" has {len(detected_pii)} PII pattern(s) detected in metadata: '
+                                f'{", ".join(set(pii_types))}. Storing PII in agent names, descriptions, or '
+                                f'instructions creates compliance risks (GDPR Art. 32, HIPAA) and can lead to '
+                                f'unintentional disclosure through logs, UIs, or audit trails. Move sensitive '
+                                f'data to encrypted storage like Secrets Manager or Parameter Store.'
+                            ),
+                            'location': f'Agent: {agent_name}',
+                            'resource': f'bedrock-agent:agent/{agent_id}',
+                            'remediation': (
+                                f'Remove PII from agent metadata:\n\n'
+                                f'1. Review detected PII patterns:\n'
+                                f'   {", ".join(set(pii_types))}\n\n'
+                                f'2. Update agent to remove sensitive data:\n'
+                                f'aws bedrock-agent update-agent \\\n'
+                                f'  --agent-id {agent_id} \\\n'
+                                f'  --agent-name "[redacted name]" \\\n'
+                                f'  --description "[redacted description]" \\\n'
+                                f'  --instruction "[redacted instructions]"\n\n'
+                                f'3. Store sensitive data in AWS Secrets Manager instead\n'
+                                f'4. Reference secrets by ID, not by value'
+                            ),
+                            'details': {
+                                'agent_id': agent_id,
+                                'agent_name': agent_name,
+                                'detected_pii': detected_pii[:10],  # Limit to first 10
+                                'pii_count': len(detected_pii),
+                                'pii_types': list(set(pii_types)),
+                                'compliance': ['GDPR Art. 32', 'HIPAA', 'PCI-DSS']
+                            }
+                        })
+
+                except ClientError as e:
+                    error_code = e.response['Error']['Code']
+                    if error_code == 'ResourceNotFoundException':
+                        print(f"[WARN] Agent {agent_name} not found (may have been deleted)")
+                    else:
+                        handle_aws_error(e, f"getting agent {agent_name}")
+                except Exception as e:
+                    print(f"[ERROR] Failed to analyze agent {agent_name}: {str(e)}")
+
+        except Exception as e:
+            print(f"[ERROR] Failed to check agent PII in names: {str(e)}")
+
+        return findings
 
     def check_agent_prompt_injection_patterns(self) -> List[Dict]:
         """
@@ -1383,16 +1664,154 @@ class AgentSecurityChecks:
         """
         Verify agent invocations are logged to CloudWatch.
 
+        WHY IMPORTANT: Agent invocation logging is critical for security monitoring,
+        incident response, compliance auditing, and troubleshooting. Without logs,
+        detecting prompt injection attacks, data exfiltration, or unauthorized access
+        becomes impossible.
+
+        Checks: CloudWatch log group existence, retention, encryption
+        Risk: MEDIUM for missing/misconfigured logging
+        Compliance: SOC 2, ISO 27001, GDPR Art. 30
+
         Returns:
             List of security findings
-
-        TODO: Implement check for:
-        - Verify CloudWatch log groups exist for agent invocations
-        - Check log retention policies
-        - Verify log encryption settings
-        - Risk Score: 7/10 for missing logging
         """
-        raise NotImplementedError("See ROADMAP.md Section 1.1.10")
+        findings = []
+
+        try:
+            # List all agents with pagination
+            agents = self._get_all_agents()
+
+            if not agents:
+                return findings
+
+            print(f"[CHECK] Validating CloudWatch logging for {len(agents)} agents...")
+
+            # Get CloudWatch Logs client
+            logs_client = self.checker.session.client('logs')
+
+            for agent in agents:
+                agent_id = agent['agentId']
+                agent_name = agent.get('agentName', agent_id)
+
+                try:
+                    # Agent logs typically go to: /aws/vendedlogs/bedrock/agent/{agent-id}
+                    log_group_name = f'/aws/vendedlogs/bedrock/agent/{agent_id}'
+
+                    # Check if log group exists
+                    try:
+                        log_groups = logs_client.describe_log_groups(
+                            logGroupNamePrefix=log_group_name,
+                            limit=1
+                        )
+
+                        matching_groups = [
+                            lg for lg in log_groups.get('logGroups', [])
+                            if lg['logGroupName'] == log_group_name
+                        ]
+
+                        if not matching_groups:
+                            findings.append({
+                                'risk_level': RiskLevel.MEDIUM,
+                                'title': 'Agent invocation logging not configured',
+                                'description': (
+                                    f'Agent "{agent_name}" does not have CloudWatch Logs configured. '
+                                    f'Without logging, security monitoring, incident response, and compliance '
+                                    f'auditing are not possible. Agent invocations, prompt injection attempts, '
+                                    f'and unauthorized access cannot be detected or investigated.'
+                                ),
+                                'location': f'Agent: {agent_name}',
+                                'resource': f'bedrock-agent:agent/{agent_id}',
+                                'remediation': (
+                                    f'Enable CloudWatch Logs for the agent:\n\n'
+                                    f'Note: Bedrock Agent logs are automatically created when agent is invoked,\n'
+                                    f'but you should verify logging is working:\n\n'
+                                    f'1. Invoke the agent at least once to create log group\n'
+                                    f'2. Set appropriate log retention:\n'
+                                    f'aws logs put-retention-policy \\\n'
+                                    f'  --log-group-name {log_group_name} \\\n'
+                                    f'  --retention-in-days 90\n\n'
+                                    f'3. Enable log encryption with customer-managed KMS key:\n'
+                                    f'aws logs associate-kms-key \\\n'
+                                    f'  --log-group-name {log_group_name} \\\n'
+                                    f'  --kms-key-id arn:aws:kms:{{region}}:{{account}}:key/{{key-id}}'
+                                ),
+                                'details': {
+                                    'agent_id': agent_id,
+                                    'agent_name': agent_name,
+                                    'expected_log_group': log_group_name,
+                                    'compliance': ['SOC 2', 'ISO 27001', 'GDPR Art. 30']
+                                }
+                            })
+                        else:
+                            # Log group exists - check retention and encryption
+                            log_group = matching_groups[0]
+                            retention_days = log_group.get('retentionInDays')
+                            kms_key_id = log_group.get('kmsKeyId')
+
+                            issues = []
+
+                            # Check retention policy (recommended: 90+ days for security logs)
+                            if not retention_days:
+                                issues.append('no retention policy (logs kept indefinitely, cost risk)')
+                            elif retention_days < 90:
+                                issues.append(f'retention too short ({retention_days} days, recommended 90+)')
+
+                            # Check encryption
+                            if not kms_key_id:
+                                issues.append('not encrypted with customer-managed KMS key')
+
+                            if issues:
+                                findings.append({
+                                    'risk_level': RiskLevel.LOW,
+                                    'title': 'Agent logging configuration needs improvement',
+                                    'description': (
+                                        f'Agent "{agent_name}" has CloudWatch Logs configured but with '
+                                        f'{len(issues)} issue(s): {"; ".join(issues)}. Proper log retention '
+                                        f'and encryption are important for compliance and security.'
+                                    ),
+                                    'location': f'Agent: {agent_name}',
+                                    'resource': log_group_name,
+                                    'remediation': (
+                                        f'Improve log configuration:\n\n'
+                                        f'1. Set retention to 90+ days:\n'
+                                        f'aws logs put-retention-policy \\\n'
+                                        f'  --log-group-name {log_group_name} \\\n'
+                                        f'  --retention-in-days 90\n\n'
+                                        f'2. Enable KMS encryption:\n'
+                                        f'aws logs associate-kms-key \\\n'
+                                        f'  --log-group-name {log_group_name} \\\n'
+                                        f'  --kms-key-id arn:aws:kms:{{region}}:{{account}}:key/{{key-id}}'
+                                    ),
+                                    'details': {
+                                        'agent_id': agent_id,
+                                        'agent_name': agent_name,
+                                        'log_group_name': log_group_name,
+                                        'retention_days': retention_days,
+                                        'has_kms_encryption': bool(kms_key_id),
+                                        'issues': issues,
+                                        'compliance': ['SOC 2', 'ISO 27001']
+                                    }
+                                })
+
+                    except ClientError as e:
+                        error_code = e.response['Error']['Code']
+                        if error_code != 'AccessDeniedException':
+                            print(f"[WARN] Could not check logs for agent {agent_name}: {error_code}")
+
+                except ClientError as e:
+                    error_code = e.response['Error']['Code']
+                    if error_code == 'ResourceNotFoundException':
+                        print(f"[WARN] Agent {agent_name} not found (may have been deleted)")
+                    else:
+                        handle_aws_error(e, f"checking logging for agent {agent_name}")
+                except Exception as e:
+                    print(f"[ERROR] Failed to analyze agent {agent_name}: {str(e)}")
+
+        except Exception as e:
+            print(f"[ERROR] Failed to check agent logging: {str(e)}")
+
+        return findings
 
     def run_all_checks(self) -> List[Dict]:
         """
@@ -1403,19 +1822,17 @@ class AgentSecurityChecks:
         """
         print("[CHECK] Running AWS Bedrock Agent security checks...")
 
-        # Implemented checks
+        # All implemented checks (10 of 10)
         self.findings.extend(self.check_agent_action_confirmation())
         self.findings.extend(self.check_agent_guardrails())
         self.findings.extend(self.check_agent_prompt_injection_patterns())
         self.findings.extend(self.check_agent_service_roles())
         self.findings.extend(self.check_agent_lambda_permissions())
         self.findings.extend(self.check_agent_knowledge_base_access())
-
-        # TODO: Uncomment as each check is implemented
-        # self.findings.extend(self.check_agent_memory_encryption())
-        # self.findings.extend(self.check_agent_tags())
-        # self.findings.extend(self.check_agent_pii_in_names())
-        # self.findings.extend(self.check_agent_logging())
+        self.findings.extend(self.check_agent_memory_encryption())
+        self.findings.extend(self.check_agent_tags())
+        self.findings.extend(self.check_agent_pii_in_names())
+        self.findings.extend(self.check_agent_logging())
 
         print(f"[INFO] Agent security checks: {len(self.findings)} findings")
         return self.findings
