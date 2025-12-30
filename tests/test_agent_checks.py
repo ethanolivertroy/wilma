@@ -502,6 +502,228 @@ class TestAgentPromptInjectionPatterns:
         assert len(findings) == 0
 
 
+class TestAgentServiceRoles:
+    """Tests for check_agent_service_roles()"""
+
+    def test_no_agents(self, mock_checker):
+        """Test when no agents exist - should return empty findings."""
+        mock_checker.bedrock_agent.list_agents.return_value = {
+            'agentSummaries': []
+        }
+
+        agent_checks = AgentSecurityChecks(mock_checker)
+        findings = agent_checks.check_agent_service_roles()
+
+        assert findings == []
+
+    def test_agent_with_administrator_access_critical_finding(self, mock_checker):
+        """Test agent with AdministratorAccess policy - CRITICAL finding."""
+        import json
+
+        # Create IAM role using Moto
+        mock_checker.iam.create_role(
+            RoleName='AdminAgentRole',
+            AssumeRolePolicyDocument='{"Version":"2012-10-17","Statement":[]}'
+        )
+
+        # Create AdministratorAccess policy in Moto
+        admin_policy_arn = mock_checker.iam.create_policy(
+            PolicyName='AdministratorAccess',
+            PolicyDocument=json.dumps({
+                'Version': '2012-10-17',
+                'Statement': [{
+                    'Effect': 'Allow',
+                    'Action': '*',
+                    'Resource': '*'
+                }]
+            })
+        )['Policy']['Arn']
+
+        # Attach AdministratorAccess policy
+        mock_checker.iam.attach_role_policy(
+            RoleName='AdminAgentRole',
+            PolicyArn=admin_policy_arn
+        )
+
+        # Setup agent
+        setup_agent_mock(
+            mock_checker.bedrock_agent,
+            agent_id='agent-admin',
+            agent_name='AdminAgent'
+        )
+
+        # Mock agent response with role ARN
+        mock_checker.bedrock_agent.get_agent.return_value = {
+            'agent': {
+                'agentId': 'agent-admin',
+                'agentName': 'AdminAgent',
+                'agentResourceRoleArn': 'arn:aws:iam::123456789012:role/AdminAgentRole'
+            }
+        }
+
+        agent_checks = AgentSecurityChecks(mock_checker)
+        findings = agent_checks.check_agent_service_roles()
+
+        # Should have CRITICAL finding
+        assert len(findings) == 1
+        finding = findings[0]
+        assert finding['risk_level'] == RiskLevel.CRITICAL
+        assert 'AdministratorAccess' in finding['title']
+        assert 'AdminAgent' in finding['description']
+        assert finding['details']['policy_name'] == 'AdministratorAccess'
+
+    def test_agent_with_wildcard_action_high_finding(self, mock_checker):
+        """Test agent with bedrock:* permission - HIGH finding."""
+        import json
+
+        # Create IAM role using Moto
+        mock_checker.iam.create_role(
+            RoleName='WildcardRole',
+            AssumeRolePolicyDocument='{"Version":"2012-10-17","Statement":[]}'
+        )
+
+        # Add inline policy with wildcard
+        mock_checker.iam.put_role_policy(
+            RoleName='WildcardRole',
+            PolicyName='WildcardPolicy',
+            PolicyDocument=json.dumps({
+                'Version': '2012-10-17',
+                'Statement': [
+                    {
+                        'Effect': 'Allow',
+                        'Action': 'bedrock:*',
+                        'Resource': '*'
+                    }
+                ]
+            })
+        )
+
+        # Setup agent
+        setup_agent_mock(
+            mock_checker.bedrock_agent,
+            agent_id='agent-wildcard',
+            agent_name='WildcardAgent'
+        )
+
+        # Mock agent response with role ARN
+        mock_checker.bedrock_agent.get_agent.return_value = {
+            'agent': {
+                'agentId': 'agent-wildcard',
+                'agentName': 'WildcardAgent',
+                'agentResourceRoleArn': 'arn:aws:iam::123456789012:role/WildcardRole'
+            }
+        }
+
+        agent_checks = AgentSecurityChecks(mock_checker)
+        findings = agent_checks.check_agent_service_roles()
+
+        # Should have HIGH finding
+        assert len(findings) == 1
+        finding = findings[0]
+        assert finding['risk_level'] == RiskLevel.HIGH
+        assert 'wildcard permissions' in finding['title']
+        assert 'bedrock:*' in finding['description']
+
+    def test_agent_with_full_wildcard_critical_finding(self, mock_checker):
+        """Test agent with Action:* permission - CRITICAL finding."""
+        import json
+
+        # Create IAM role using Moto
+        mock_checker.iam.create_role(
+            RoleName='FullWildcardRole',
+            AssumeRolePolicyDocument='{"Version":"2012-10-17","Statement":[]}'
+        )
+
+        # Add inline policy with Action:*
+        mock_checker.iam.put_role_policy(
+            RoleName='FullWildcardRole',
+            PolicyName='FullWildcardPolicy',
+            PolicyDocument=json.dumps({
+                'Version': '2012-10-17',
+                'Statement': [
+                    {
+                        'Effect': 'Allow',
+                        'Action': '*',  # Full wildcard!
+                        'Resource': '*'
+                    }
+                ]
+            })
+        )
+
+        # Setup agent
+        setup_agent_mock(
+            mock_checker.bedrock_agent,
+            agent_id='agent-fullwild',
+            agent_name='FullWildcardAgent'
+        )
+
+        # Mock agent response with role ARN
+        mock_checker.bedrock_agent.get_agent.return_value = {
+            'agent': {
+                'agentId': 'agent-fullwild',
+                'agentName': 'FullWildcardAgent',
+                'agentResourceRoleArn': 'arn:aws:iam::123456789012:role/FullWildcardRole'
+            }
+        }
+
+        agent_checks = AgentSecurityChecks(mock_checker)
+        findings = agent_checks.check_agent_service_roles()
+
+        # Should have CRITICAL finding for Action:*
+        assert len(findings) == 1
+        finding = findings[0]
+        assert finding['risk_level'] == RiskLevel.CRITICAL
+        assert 'wildcard permissions' in finding['title']
+
+    def test_agent_with_specific_permissions_no_finding(self, mock_checker):
+        """Test agent with least-privilege permissions - no finding."""
+        import json
+
+        # Create IAM role using Moto
+        mock_checker.iam.create_role(
+            RoleName='SecureRole',
+            AssumeRolePolicyDocument='{"Version":"2012-10-17","Statement":[]}'
+        )
+
+        # Add inline policy with specific permissions (good practice)
+        mock_checker.iam.put_role_policy(
+            RoleName='SecureRole',
+            PolicyName='LeastPrivilegePolicy',
+            PolicyDocument=json.dumps({
+                'Version': '2012-10-17',
+                'Statement': [
+                    {
+                        'Effect': 'Allow',
+                        'Action': 'bedrock:InvokeModel',
+                        'Resource': 'arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-v2'
+                    }
+                ]
+            })
+        )
+
+        # Setup agent
+        setup_agent_mock(
+            mock_checker.bedrock_agent,
+            agent_id='agent-secure',
+            agent_name='SecureAgent'
+        )
+
+        # Mock agent response with role ARN
+        mock_checker.bedrock_agent.get_agent.return_value = {
+            'agent': {
+                'agentId': 'agent-secure',
+                'agentName': 'SecureAgent',
+                'agentResourceRoleArn': 'arn:aws:iam::123456789012:role/SecureRole'
+            }
+        }
+
+        agent_checks = AgentSecurityChecks(mock_checker)
+        findings = agent_checks.check_agent_service_roles()
+
+        # No findings - specific permissions are good
+        assert len(findings) == 0
+
+
 class TestAgentSecurityChecksInitialization:
     """Tests for AgentSecurityChecks class initialization."""
 

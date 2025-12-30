@@ -386,17 +386,227 @@ class AgentSecurityChecks:
         """
         Validate agent service role permissions follow least privilege.
 
+        WHY CRITICAL: Agents with overly permissive service roles can access
+        AWS resources beyond their intended scope, enabling privilege escalation
+        and lateral movement if the agent is compromised via prompt injection.
+
+        Checks: IAM policy analysis for dangerous patterns
+        Risk: HIGH for AdministratorAccess, wildcard permissions
+        OWASP: LLM08 (Excessive Agency)
+
         Returns:
             List of security findings
-
-        TODO: Implement check for:
-        - List all agents and their service roles
-        - Analyze role policies for overly permissive actions
-        - Flag wildcard permissions (bedrock:*, *)
-        - Check for cross-account access risks
-        - Risk Score: 8/10 for overly permissive roles
         """
-        raise NotImplementedError("See ROADMAP.md Section 1.1.3")
+        findings = []
+
+        try:
+            # List all agents with pagination
+            agents = self._get_all_agents()
+
+            if not agents:
+                return findings
+
+            print(f"[CHECK] Analyzing {len(agents)} agents for service role permissions...")
+
+            # Track checked roles to avoid duplicate analysis
+            checked_roles = set()
+
+            for agent in agents:
+                agent_id = agent['agentId']
+                agent_name = agent.get('agentName', agent_id)
+
+                try:
+                    # Get detailed agent configuration
+                    agent_response = self.bedrock_agent.get_agent(agentId=agent_id)
+                    agent_config = agent_response.get('agent', {})
+
+                    # Get the agent's service role ARN
+                    role_arn = agent_config.get('agentResourceRoleArn', '')
+
+                    if not role_arn or role_arn in checked_roles:
+                        continue
+
+                    checked_roles.add(role_arn)
+
+                    # Analyze IAM policies for this role
+                    role_findings = self._analyze_agent_iam_policies(
+                        agent_name, agent_id, role_arn
+                    )
+                    findings.extend(role_findings)
+
+                except ClientError as e:
+                    error_code = e.response['Error']['Code']
+                    if error_code == 'ResourceNotFoundException':
+                        print(f"[WARN] Agent {agent_name} not found (may have been deleted)")
+                    else:
+                        handle_aws_error(e, f"getting agent {agent_name}")
+                except Exception as e:
+                    print(f"[ERROR] Failed to analyze agent {agent_name}: {str(e)}")
+
+        except Exception as e:
+            print(f"[ERROR] Failed to check agent service roles: {str(e)}")
+
+        return findings
+
+    def _analyze_agent_iam_policies(
+        self,
+        agent_name: str,
+        agent_id: str,
+        role_arn: str
+    ) -> List[Dict]:
+        """
+        Analyze IAM policies for overly permissive agent service role.
+
+        Detects security issues:
+        - AdministratorAccess / PowerUserAccess managed policies
+        - Wildcard bedrock:* or bedrock-agent:* permissions
+        - Overly broad resource access (Resource: *)
+
+        Args:
+            agent_name: Agent name for reporting
+            agent_id: Agent ID
+            role_arn: IAM role ARN used by the agent
+
+        Returns:
+            List of security findings related to IAM permissions
+        """
+        findings = []
+
+        # Extract role name from ARN (format: arn:aws:iam::account:role/RoleName)
+        role_name = role_arn.split('/')[-1] if '/' in role_arn else None
+        if not role_name:
+            return findings
+
+        try:
+            # Check attached managed policies for dangerous AWS-managed policies
+            try:
+                attached_policies = self.iam.list_attached_role_policies(
+                    RoleName=role_name
+                )
+
+                for policy in attached_policies.get('AttachedPolicies', []):
+                    policy_name = policy['PolicyName']
+
+                    # Detect dangerous AWS-managed policies
+                    if policy_name in ['AdministratorAccess', 'PowerUserAccess']:
+                        findings.append({
+                            'risk_level': RiskLevel.CRITICAL,
+                            'title': f'Agent service role has {policy_name} policy',
+                            'description': (
+                                f'Agent "{agent_name}" service role has the overly permissive '
+                                f'AWS-managed policy "{policy_name}" attached. This grants unrestricted '
+                                f'access to ALL AWS services and resources, violating the principle of '
+                                f'least privilege. If the agent is compromised via prompt injection, '
+                                f'an attacker could escalate privileges to control the entire AWS account.'
+                            ),
+                            'location': f'Agent: {agent_name}',
+                            'resource': role_arn,
+                            'remediation': (
+                                f'Replace {policy_name} with a least-privilege policy:\n\n'
+                                f'1. Create a custom policy with only required permissions:\n'
+                                f'   - bedrock:InvokeModel for foundation models\n'
+                                f'   - lambda:InvokeFunction for specific action group Lambdas\n'
+                                f'   - bedrock:Retrieve for knowledge base access\n'
+                                f'   - s3:GetObject for specific buckets (if needed)\n\n'
+                                f'2. Detach {policy_name}:\n'
+                                f'aws iam detach-role-policy \\\n'
+                                f'  --role-name {role_name} \\\n'
+                                f'  --policy-arn arn:aws:iam::aws:policy/{policy_name}\n\n'
+                                f'3. Attach the new least-privilege policy'
+                            ),
+                            'details': {
+                                'agent_id': agent_id,
+                                'agent_name': agent_name,
+                                'role_arn': role_arn,
+                                'policy_name': policy_name,
+                                'policy_type': 'AWS-managed',
+                                'owasp': 'LLM08 (Excessive Agency)'
+                            }
+                        })
+
+            except ClientError as e:
+                if e.response['Error']['Code'] not in ['NoSuchEntity', 'AccessDenied']:
+                    print(f"[WARN] Could not check attached policies for role {role_name}: {str(e)}")
+
+            # Check inline policies for wildcard permissions
+            try:
+                inline_policies = self.iam.list_role_policies(RoleName=role_name)
+
+                for policy_name in inline_policies.get('PolicyNames', []):
+                    try:
+                        policy_doc = self.iam.get_role_policy(
+                            RoleName=role_name,
+                            PolicyName=policy_name
+                        ).get('PolicyDocument', {})
+
+                        # Analyze each statement for overly permissive permissions
+                        for statement in policy_doc.get('Statement', []):
+                            if statement.get('Effect') != 'Allow':
+                                continue
+
+                            actions = statement.get('Action', [])
+                            resources = statement.get('Resource', [])
+
+                            # Convert to list if single string
+                            if isinstance(actions, str):
+                                actions = [actions]
+                            if isinstance(resources, str):
+                                resources = [resources]
+
+                            # Check for wildcard actions with wildcard resources
+                            has_wildcard_action = any(
+                                action in ['*', 'bedrock:*', 'bedrock-agent:*']
+                                for action in actions
+                            )
+                            has_wildcard_resource = '*' in resources
+
+                            if has_wildcard_action and has_wildcard_resource:
+                                risk_level = RiskLevel.CRITICAL if '*' in actions else RiskLevel.HIGH
+
+                                findings.append({
+                                    'risk_level': risk_level,
+                                    'title': 'Agent service role has wildcard permissions',
+                                    'description': (
+                                        f'Agent "{agent_name}" service role has wildcard permissions '
+                                        f'({", ".join(actions)}) with Resource:*. This allows the agent '
+                                        f'to access ANY resource within the permitted services, violating '
+                                        f'least privilege. Restrict to specific resource ARNs.'
+                                    ),
+                                    'location': f'Agent: {agent_name}',
+                                    'resource': role_arn,
+                                    'remediation': (
+                                        f'Restrict the IAM policy to specific resources:\n\n'
+                                        f'1. Update inline policy "{policy_name}" on role {role_name}\n'
+                                        f'2. Change Resource from "*" to specific ARNs:\n'
+                                        f'   - Foundation models: arn:aws:bedrock:*::foundation-model/*\n'
+                                        f'   - Knowledge bases: arn:aws:bedrock:region:account:knowledge-base/kb-id\n'
+                                        f'   - Lambda functions: arn:aws:lambda:region:account:function:name\n\n'
+                                        f'3. Remove wildcard actions, use specific permissions instead'
+                                    ),
+                                    'details': {
+                                        'agent_id': agent_id,
+                                        'agent_name': agent_name,
+                                        'role_arn': role_arn,
+                                        'policy_name': policy_name,
+                                        'policy_type': 'inline',
+                                        'actions': actions,
+                                        'resources': resources,
+                                        'owasp': 'LLM08 (Excessive Agency)'
+                                    }
+                                })
+
+                    except ClientError as e:
+                        if e.response['Error']['Code'] != 'AccessDenied':
+                            print(f"[WARN] Could not analyze inline policy {policy_name}: {str(e)}")
+
+            except ClientError as e:
+                if e.response['Error']['Code'] not in ['NoSuchEntity', 'AccessDenied']:
+                    print(f"[WARN] Could not list inline policies for role {role_name}: {str(e)}")
+
+        except Exception as e:
+            print(f"[WARN] Error analyzing IAM policies for agent {agent_name}: {str(e)}")
+
+        return findings
 
     def check_agent_lambda_permissions(self) -> List[Dict]:
         """
@@ -683,9 +893,9 @@ class AgentSecurityChecks:
         self.findings.extend(self.check_agent_action_confirmation())
         self.findings.extend(self.check_agent_guardrails())
         self.findings.extend(self.check_agent_prompt_injection_patterns())
+        self.findings.extend(self.check_agent_service_roles())
 
         # TODO: Uncomment as each check is implemented
-        # self.findings.extend(self.check_agent_service_roles())
         # self.findings.extend(self.check_agent_lambda_permissions())
         # self.findings.extend(self.check_agent_memory_encryption())
         # self.findings.extend(self.check_agent_knowledge_base_access())
