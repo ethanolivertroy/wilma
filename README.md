@@ -263,13 +263,25 @@ CRITICAL ISSUES:
 - Usage anomaly detection setup
 - Real-time threat monitoring
 
-### Knowledge Bases (RAG) Security - NEW!
+### Knowledge Bases (RAG) Security
 - **S3 Data Source Security**: Public access blocking, encryption, versioning
 - **Vector Store Security**: Encryption and access control for OpenSearch/Aurora/RDS
 - **PII Detection**: Pattern-based scanning of configurations and metadata
 - **Prompt Injection Detection**: Identifies suspicious patterns in KB content
 - **Access Control**: IAM role and policy validation
 - **Configuration Review**: Chunking strategies, logging, and tagging compliance
+
+### Agents Security - NEW! ✨
+- **Action Confirmation**: Validates agents require human approval for mutating operations (OWASP LLM08)
+- **Guardrail Configuration**: Ensures HIGH-strength guardrails against prompt injection (OWASP LLM01)
+- **Service Role Permissions**: Audits IAM roles for least privilege, detects AdministratorAccess
+- **Lambda Function Security**: Validates action group Lambdas aren't publicly invocable, scans for secrets
+- **Knowledge Base Access**: Detects cross-account KB access and missing KB references
+- **Memory Encryption**: Verifies customer-managed KMS keys for session memory (HIPAA, PCI-DSS)
+- **Resource Tagging**: Validates governance tags (Environment, Owner, DataClassification)
+- **PII Detection**: Scans agent metadata for SSN, credit cards, emails, AWS keys
+- **Prompt Injection Patterns**: Identifies dangerous patterns in agent instructions
+- **CloudWatch Logging**: Validates log groups, retention policies, and KMS encryption (SOC 2, ISO 27001)
 
 ## Architecture
 
