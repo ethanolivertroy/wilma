@@ -18,7 +18,9 @@ from typing import Dict, List
 import boto3
 
 from wilma.checks import (
+    AgentSecurityChecks,
     GenAISecurityChecks,
+    GuardrailSecurityChecks,
     IAMSecurityChecks,
     KnowledgeBaseSecurityChecks,
     LoggingSecurityChecks,
@@ -34,9 +36,11 @@ class BedrockSecurityChecker:
     AWS Bedrock Security Checker - Main Orchestrator
 
     Coordinates security checks across:
+    - Agents Security (10 comprehensive checks) - OWASP LLM08, LLM01
     - Traditional AWS security (IAM, network, logging)
     - GenAI-specific threats (OWASP LLM Top 10, MITRE ATLAS)
-    - Knowledge Base (RAG) security (12 comprehensive checks)
+    - Guardrails Security (11 comprehensive checks) - OWASP LLM01, LLM02, LLM09
+    - Knowledge Base (RAG) security (12 comprehensive checks) - OWASP LLM03, LLM06, LLM07
 
     Each check module inherits this checker instance for AWS client access.
     """
@@ -91,12 +95,14 @@ class BedrockSecurityChecker:
         self.available_models = []
 
         # Initialize specialized check modules (each receives this checker instance)
+        self.agent_checks = AgentSecurityChecks(self)
         self.genai_checks = GenAISecurityChecks(self)
+        self.guardrail_checks = GuardrailSecurityChecks(self)
         self.iam_checks = IAMSecurityChecks(self)
+        self.kb_checks = KnowledgeBaseSecurityChecks(self)
         self.logging_checks = LoggingSecurityChecks(self)
         self.network_checks = NetworkSecurityChecks(self)
         self.tagging_checks = TaggingSecurityChecks(self)
-        self.kb_checks = KnowledgeBaseSecurityChecks(self)
 
     def add_finding(self, risk_level: RiskLevel, category: str, resource: str,
                    issue: str, recommendation: str, fix_command: str = None,
@@ -170,12 +176,14 @@ class BedrockSecurityChecker:
         Execute all security checks in order.
 
         Runs comprehensive security audit covering:
-        1. IAM & Access Control - Who can use Bedrock and how
-        2. Logging & Monitoring - Audit trails and anomaly detection
-        3. Network Security - VPC endpoints and private connectivity
-        4. Resource Tagging - Organization and compliance tracking
-        5. GenAI Threats - OWASP LLM01 (prompt injection), PII leaks, cost abuse
-        6. Knowledge Bases - All 12 RAG security checks
+        1. Agents - 10 checks for autonomous AI systems (OWASP LLM08, LLM01)
+        2. Guardrails - 11 checks for content filtering & hallucination prevention (OWASP LLM01, LLM02, LLM09)
+        3. Knowledge Bases - 12 checks for RAG security (OWASP LLM03, LLM06, LLM07)
+        4. IAM & Access Control - Who can use Bedrock and how
+        5. Logging & Monitoring - Audit trails and anomaly detection
+        6. Network Security - VPC endpoints and private connectivity
+        7. Resource Tagging - Organization and compliance tracking
+        8. GenAI Threats - OWASP LLM01 (prompt injection), PII leaks, cost abuse
 
         Returns:
             List of finding dictionaries with risk levels and remediation steps
@@ -185,6 +193,15 @@ class BedrockSecurityChecker:
         print("Let me take a look at your Bedrock security configuration...")
         print(f"Account: {self.account_id} | Region: {self.region}")
         print("=" * 60)
+
+        # Critical: Autonomous AI agents (OWASP LLM08: Excessive Agency)
+        self.agent_checks.run_all_checks()
+
+        # Critical: Content filtering and hallucination prevention
+        self.guardrail_checks.run_all_checks()
+
+        # Critical: RAG-specific security (data poisoning, PII, prompt injection)
+        self.kb_checks.run_all_checks()
 
         # Foundation: Identity and access control
         self.iam_checks.check_model_access_audit()
@@ -202,8 +219,5 @@ class BedrockSecurityChecker:
         self.genai_checks.check_prompt_injection_vulnerabilities()
         self.genai_checks.check_data_privacy_compliance()
         self.genai_checks.check_cost_anomaly_detection()
-
-        # Knowledge Bases: RAG-specific security (12 checks)
-        self.kb_checks.run_all_checks()
 
         return self.findings
