@@ -199,6 +199,151 @@ class TestAgentActionConfirmation:
         assert len(findings) == 0
 
 
+class TestAgentGuardrails:
+    """Tests for check_agent_guardrails()"""
+
+    def test_no_agents(self, mock_checker):
+        """Test when no agents exist - should return empty findings."""
+        mock_checker.bedrock_agent.list_agents.return_value = {
+            'agentSummaries': []
+        }
+
+        agent_checks = AgentSecurityChecks(mock_checker)
+        findings = agent_checks.check_agent_guardrails()
+
+        assert findings == []
+
+    def test_agent_without_guardrail_critical_finding(self, mock_checker):
+        """Test agent without guardrail - CRITICAL finding."""
+        # Setup agent without guardrail
+        setup_agent_mock(
+            mock_checker.bedrock_agent,
+            agent_id='agent-no-guardrail',
+            agent_name='UnprotectedAgent',
+            has_guardrail=False
+        )
+
+        agent_checks = AgentSecurityChecks(mock_checker)
+        findings = agent_checks.check_agent_guardrails()
+
+        # Should have CRITICAL finding
+        assert len(findings) == 1
+        finding = findings[0]
+        assert finding['risk_level'] == RiskLevel.CRITICAL
+        assert 'lacks guardrail configuration' in finding['title']
+        assert 'UnprotectedAgent' in finding['description']
+        assert finding['details']['has_guardrail'] is False
+        assert 'LLM01' in finding['details']['owasp']
+
+    def test_agent_with_high_strength_guardrail_no_finding(self, mock_checker):
+        """Test agent with HIGH strength guardrail - no finding."""
+        # Setup agent with guardrail
+        setup_agent_mock(
+            mock_checker.bedrock_agent,
+            agent_id='agent-secure',
+            agent_name='SecureAgent',
+            has_guardrail=True,
+            guardrail_id='guardrail-123'
+        )
+
+        # Mock guardrail response with HIGH strength filters
+        mock_checker.bedrock.get_guardrail.return_value = {
+            'guardrailId': 'guardrail-123',
+            'name': 'SecureGuardrail',
+            'contentPolicy': {
+                'filtersConfig': [
+                    {
+                        'type': 'HATE',
+                        'inputStrength': 'HIGH',
+                        'outputStrength': 'HIGH'
+                    },
+                    {
+                        'type': 'VIOLENCE',
+                        'inputStrength': 'HIGH',
+                        'outputStrength': 'HIGH'
+                    }
+                ]
+            }
+        }
+
+        agent_checks = AgentSecurityChecks(mock_checker)
+        findings = agent_checks.check_agent_guardrails()
+
+        # No findings - HIGH strength is good
+        assert len(findings) == 0
+
+    def test_agent_with_weak_guardrail_high_finding(self, mock_checker):
+        """Test agent with MEDIUM/LOW strength guardrail - HIGH finding."""
+        # Setup agent with guardrail
+        setup_agent_mock(
+            mock_checker.bedrock_agent,
+            agent_id='agent-weak',
+            agent_name='WeakAgent',
+            has_guardrail=True,
+            guardrail_id='guardrail-weak'
+        )
+
+        # Mock guardrail response with weak filters
+        mock_checker.bedrock.get_guardrail.return_value = {
+            'guardrailId': 'guardrail-weak',
+            'name': 'WeakGuardrail',
+            'contentPolicy': {
+                'filtersConfig': [
+                    {
+                        'type': 'HATE',
+                        'inputStrength': 'MEDIUM',  # Weak!
+                        'outputStrength': 'HIGH'
+                    },
+                    {
+                        'type': 'VIOLENCE',
+                        'inputStrength': 'LOW',  # Very weak!
+                        'outputStrength': 'MEDIUM'  # Weak!
+                    }
+                ]
+            }
+        }
+
+        agent_checks = AgentSecurityChecks(mock_checker)
+        findings = agent_checks.check_agent_guardrails()
+
+        # Should have HIGH finding for weak filters
+        assert len(findings) == 1
+        finding = findings[0]
+        assert finding['risk_level'] == RiskLevel.HIGH
+        assert 'weak filter strength' in finding['title']
+        assert 'WeakAgent' in finding['description']
+        assert len(finding['details']['weak_filters']) == 2
+        assert finding['details']['guardrail_id'] == 'guardrail-weak'
+
+    def test_agent_with_missing_guardrail_high_finding(self, mock_checker):
+        """Test agent referencing non-existent guardrail - HIGH finding."""
+        # Setup agent with guardrail reference
+        setup_agent_mock(
+            mock_checker.bedrock_agent,
+            agent_id='agent-broken',
+            agent_name='BrokenAgent',
+            has_guardrail=True,
+            guardrail_id='guardrail-missing'
+        )
+
+        # Mock guardrail not found
+        from botocore.exceptions import ClientError
+        mock_checker.bedrock.get_guardrail.side_effect = ClientError(
+            {'Error': {'Code': 'ResourceNotFoundException', 'Message': 'Guardrail not found'}},
+            'GetGuardrail'
+        )
+
+        agent_checks = AgentSecurityChecks(mock_checker)
+        findings = agent_checks.check_agent_guardrails()
+
+        # Should have HIGH finding
+        assert len(findings) == 1
+        finding = findings[0]
+        assert finding['risk_level'] == RiskLevel.HIGH
+        assert 'guardrail not found' in finding['title']
+        assert 'guardrail-missing' in finding['description']
+
+
 class TestAgentSecurityChecksInitialization:
     """Tests for AgentSecurityChecks class initialization."""
 

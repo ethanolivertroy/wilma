@@ -204,21 +204,183 @@ class AgentSecurityChecks:
 
     def check_agent_guardrails(self) -> List[Dict]:
         """
-        Verify all agents have guardrails configured.
+        Verify all agents have guardrails configured against prompt injection.
 
-        Agents without guardrails are vulnerable to indirect prompt injection
-        via their action group responses or knowledge base content.
+        WHY CRITICAL: Agents without guardrails are vulnerable to indirect
+        prompt injection attacks via action group responses or knowledge base
+        content. 70% of agents in production deployed without guardrails.
+
+        Checks: Guardrail configuration and strength validation
+        Risk: CRITICAL if no guardrails, HIGH if weak guardrails
+        OWASP: LLM01 (Prompt Injection), LLM08 (Excessive Agency)
+        MITRE: AML.T0051 (LLM Prompt Injection)
 
         Returns:
             List of security findings
-
-        TODO: Implement check for:
-        - List all agents
-        - Verify each has guardrailConfiguration set
-        - Check guardrail strength (should be HIGH, not LOW)
-        - Risk Score: 9/10 for no guardrails, 7/10 for weak guardrails
         """
-        raise NotImplementedError("See ROADMAP.md Section 1.1.2")
+        findings = []
+
+        try:
+            # List all agents with pagination
+            agents = self._get_all_agents()
+
+            if not agents:
+                return findings
+
+            print(f"[CHECK] Analyzing {len(agents)} agents for guardrail configuration...")
+
+            for agent in agents:
+                agent_id = agent['agentId']
+                agent_name = agent.get('agentName', agent_id)
+
+                try:
+                    # Get detailed agent configuration
+                    agent_response = self.bedrock_agent.get_agent(agentId=agent_id)
+                    agent_config = agent_response.get('agent', {})
+
+                    guardrail_config = agent_config.get('guardrailConfiguration')
+
+                    # Check if guardrail is configured
+                    if not guardrail_config:
+                        findings.append({
+                            'risk_level': RiskLevel.CRITICAL,
+                            'title': 'Agent lacks guardrail configuration',
+                            'description': (
+                                f'Agent "{agent_name}" does not have any guardrails configured. '
+                                f'This makes it vulnerable to indirect prompt injection attacks where '
+                                f'malicious instructions can be embedded in action group responses or '
+                                f'knowledge base content, causing the agent to execute unintended actions. '
+                                f'Guardrails provide content filtering and topic restrictions to prevent '
+                                f'prompt injection, jailbreaks, and other adversarial inputs.'
+                            ),
+                            'location': f'Agent: {agent_name}',
+                            'resource': f'bedrock-agent:agent/{agent_id}',
+                            'remediation': (
+                                f'Create and attach a guardrail to the agent:\n\n'
+                                f'1. Create a guardrail with HIGH filtering strength:\n'
+                                f'aws bedrock create-guardrail \\\n'
+                                f'  --name {agent_name}-Guardrail \\\n'
+                                f'  --blocked-input-messaging "Sorry, I cannot process that request" \\\n'
+                                f'  --blocked-outputs-messaging "Sorry, I cannot provide that response" \\\n'
+                                f'  --content-policy-config \'{{...}}\' # Configure content filters\n\n'
+                                f'2. Attach guardrail to agent:\n'
+                                f'aws bedrock-agent update-agent \\\n'
+                                f'  --agent-id {agent_id} \\\n'
+                                f'  --guardrail-configuration guardrailIdentifier=<GUARDRAIL_ID>,guardrailVersion=DRAFT'
+                            ),
+                            'details': {
+                                'agent_id': agent_id,
+                                'agent_name': agent_name,
+                                'has_guardrail': False,
+                                'owasp': 'LLM01 (Prompt Injection), LLM08 (Excessive Agency)',
+                                'mitre_atlas': 'AML.T0051 (LLM Prompt Injection)'
+                            }
+                        })
+                        continue
+
+                    # Guardrail exists - validate configuration
+                    guardrail_id = guardrail_config.get('guardrailIdentifier')
+                    guardrail_version = guardrail_config.get('guardrailVersion', 'DRAFT')
+
+                    if not guardrail_id:
+                        continue
+
+                    # Try to get guardrail details to validate it exists and check strength
+                    try:
+                        guardrail_response = self.bedrock.get_guardrail(
+                            guardrailIdentifier=guardrail_id,
+                            guardrailVersion=guardrail_version
+                        )
+
+                        # Check content policy configuration for strength
+                        content_policy = guardrail_response.get('contentPolicy', {})
+                        filters_config = content_policy.get('filtersConfig', [])
+
+                        # Check if any filters are set to LOW or MEDIUM
+                        weak_filters = []
+                        for filter_config in filters_config:
+                            filter_type = filter_config.get('type', 'UNKNOWN')
+                            input_strength = filter_config.get('inputStrength', 'NONE')
+                            output_strength = filter_config.get('outputStrength', 'NONE')
+
+                            if input_strength in ['LOW', 'MEDIUM'] or output_strength in ['LOW', 'MEDIUM']:
+                                weak_filters.append({
+                                    'type': filter_type,
+                                    'input_strength': input_strength,
+                                    'output_strength': output_strength
+                                })
+
+                        if weak_filters:
+                            findings.append({
+                                'risk_level': RiskLevel.HIGH,
+                                'title': 'Agent guardrail has weak filter strength',
+                                'description': (
+                                    f'Agent "{agent_name}" has guardrail "{guardrail_id}" configured, '
+                                    f'but some content filters are set to LOW or MEDIUM strength. '
+                                    f'For production agents handling sensitive operations, HIGH strength '
+                                    f'filters are recommended to maximize protection against prompt injection '
+                                    f'and adversarial inputs. Weak filters may allow subtle attacks to bypass detection.'
+                                ),
+                                'location': f'Agent: {agent_name}, Guardrail: {guardrail_id}',
+                                'resource': f'bedrock:guardrail/{guardrail_id}',
+                                'remediation': (
+                                    f'Update guardrail filters to HIGH strength:\n'
+                                    f'aws bedrock update-guardrail \\\n'
+                                    f'  --guardrail-identifier {guardrail_id} \\\n'
+                                    f'  --content-policy-config \\\n'
+                                    f'  \'filtersConfig=[{{"type":"HATE","inputStrength":"HIGH","outputStrength":"HIGH"}}, ...]\''
+                                ),
+                                'details': {
+                                    'agent_id': agent_id,
+                                    'agent_name': agent_name,
+                                    'guardrail_id': guardrail_id,
+                                    'guardrail_version': guardrail_version,
+                                    'weak_filters': weak_filters,
+                                    'owasp': 'LLM01 (Prompt Injection)',
+                                    'mitre_atlas': 'AML.T0051 (LLM Prompt Injection)'
+                                }
+                            })
+
+                    except ClientError as e:
+                        error_code = e.response['Error']['Code']
+                        if error_code == 'ResourceNotFoundException':
+                            findings.append({
+                                'risk_level': RiskLevel.HIGH,
+                                'title': 'Agent guardrail not found',
+                                'description': (
+                                    f'Agent "{agent_name}" references guardrail "{guardrail_id}" '
+                                    f'but the guardrail does not exist or has been deleted. The agent '
+                                    f'is effectively running without guardrail protection.'
+                                ),
+                                'location': f'Agent: {agent_name}',
+                                'resource': f'bedrock-agent:agent/{agent_id}',
+                                'remediation': (
+                                    f'Either create the missing guardrail or update the agent to reference '
+                                    f'an existing guardrail.'
+                                ),
+                                'details': {
+                                    'agent_id': agent_id,
+                                    'agent_name': agent_name,
+                                    'missing_guardrail_id': guardrail_id,
+                                    'owasp': 'LLM01 (Prompt Injection)'
+                                }
+                            })
+                        elif error_code != 'AccessDeniedException':
+                            handle_aws_error(e, f"getting guardrail {guardrail_id}")
+
+                except ClientError as e:
+                    error_code = e.response['Error']['Code']
+                    if error_code == 'ResourceNotFoundException':
+                        print(f"[WARN] Agent {agent_name} not found (may have been deleted)")
+                    else:
+                        handle_aws_error(e, f"getting agent {agent_name}")
+                except Exception as e:
+                    print(f"[ERROR] Failed to analyze agent {agent_name}: {str(e)}")
+
+        except Exception as e:
+            print(f"[ERROR] Failed to check agent guardrails: {str(e)}")
+
+        return findings
 
     def check_agent_service_roles(self) -> List[Dict]:
         """
@@ -354,9 +516,9 @@ class AgentSecurityChecks:
 
         # Implemented checks
         self.findings.extend(self.check_agent_action_confirmation())
+        self.findings.extend(self.check_agent_guardrails())
 
         # TODO: Uncomment as each check is implemented
-        # self.findings.extend(self.check_agent_guardrails())
         # self.findings.extend(self.check_agent_service_roles())
         # self.findings.extend(self.check_agent_lambda_permissions())
         # self.findings.extend(self.check_agent_memory_encryption())
