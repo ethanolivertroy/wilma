@@ -1071,3 +1071,183 @@ class TestAgentLambdaPermissions:
         # Should only call get_policy once despite two agents using the same Lambda
         assert get_policy_mock.call_count == 1
         assert get_config_mock.call_count == 1
+
+
+class TestAgentKnowledgeBaseAccess:
+    """Tests for check_agent_knowledge_base_access()."""
+
+    def test_no_agents_no_findings(self, mock_checker):
+        """Test with no agents returns no findings."""
+        mock_checker.bedrock_agent.list_agents.return_value = {
+            'agentSummaries': []
+        }
+
+        agent_checks = AgentSecurityChecks(mock_checker)
+        findings = agent_checks.check_agent_knowledge_base_access()
+
+        assert len(findings) == 0
+
+    def test_agent_cross_account_kb_access_medium_finding(self, mock_checker):
+        """Test agent with cross-account KB access - MEDIUM finding."""
+        setup_agent_mock(
+            mock_checker.bedrock_agent,
+            agent_id='agent-cross',
+            agent_name='CrossAccountAgent'
+        )
+
+        # Mock agent with ARN containing account 111111111111
+        mock_checker.bedrock_agent.get_agent.return_value = {
+            'agent': {
+                'agentId': 'agent-cross',
+                'agentName': 'CrossAccountAgent',
+                'agentArn': 'arn:aws:bedrock:us-east-1:111111111111:agent/agent-cross',
+                'agentResourceRoleArn': 'arn:aws:iam::111111111111:role/AgentRole'
+            }
+        }
+
+        # Mock KB associations
+        mock_checker.bedrock_agent.list_agent_knowledge_bases = MagicMock(return_value={
+            'agentKnowledgeBaseSummaries': [{
+                'knowledgeBaseId': 'kb-cross',
+                'knowledgeBaseState': 'ENABLED'
+            }]
+        })
+
+        # Mock KB from different account (222222222222)
+        mock_checker.bedrock_agent.get_knowledge_base = MagicMock(return_value={
+            'knowledgeBase': {
+                'knowledgeBaseId': 'kb-cross',
+                'name': 'CrossAccountKB',
+                'knowledgeBaseArn': 'arn:aws:bedrock:us-east-1:222222222222:knowledge-base/kb-cross',
+                'storageConfiguration': {
+                    'opensearchServerlessConfiguration': {
+                        'collectionArn': 'arn:aws:aoss:us-east-1:222222222222:collection/test'
+                    }
+                }
+            }
+        })
+
+        agent_checks = AgentSecurityChecks(mock_checker)
+        findings = agent_checks.check_agent_knowledge_base_access()
+
+        assert len(findings) == 1
+        assert findings[0]['risk_level'] == RiskLevel.MEDIUM
+        assert 'cross-account knowledge base access' in findings[0]['title']
+        assert findings[0]['details']['agent_account'] == '111111111111'
+        assert findings[0]['details']['kb_account'] == '222222222222'
+        assert findings[0]['details']['is_cross_account'] is True
+
+    def test_agent_missing_kb_medium_finding(self, mock_checker):
+        """Test agent references non-existent KB - MEDIUM finding."""
+        from botocore.exceptions import ClientError
+
+        setup_agent_mock(
+            mock_checker.bedrock_agent,
+            agent_id='agent-missing-kb',
+            agent_name='MissingKBAgent'
+        )
+
+        mock_checker.bedrock_agent.get_agent.return_value = {
+            'agent': {
+                'agentId': 'agent-missing-kb',
+                'agentName': 'MissingKBAgent',
+                'agentArn': 'arn:aws:bedrock:us-east-1:111111111111:agent/agent-missing-kb',
+                'agentResourceRoleArn': 'arn:aws:iam::111111111111:role/AgentRole'
+            }
+        }
+
+        # Mock KB associations
+        mock_checker.bedrock_agent.list_agent_knowledge_bases = MagicMock(return_value={
+            'agentKnowledgeBaseSummaries': [{
+                'knowledgeBaseId': 'kb-missing',
+                'knowledgeBaseState': 'ENABLED'
+            }]
+        })
+
+        # Mock KB not found
+        mock_checker.bedrock_agent.get_knowledge_base = MagicMock(
+            side_effect=ClientError(
+                {'Error': {'Code': 'ResourceNotFoundException', 'Message': 'KB not found'}},
+                'GetKnowledgeBase'
+            )
+        )
+
+        agent_checks = AgentSecurityChecks(mock_checker)
+        findings = agent_checks.check_agent_knowledge_base_access()
+
+        assert len(findings) == 1
+        assert findings[0]['risk_level'] == RiskLevel.MEDIUM
+        assert 'non-existent knowledge base' in findings[0]['title']
+        assert findings[0]['details']['missing_kb_id'] == 'kb-missing'
+
+    def test_agent_same_account_kb_no_finding(self, mock_checker):
+        """Test agent with same-account KB - no finding."""
+        setup_agent_mock(
+            mock_checker.bedrock_agent,
+            agent_id='agent-same',
+            agent_name='SameAccountAgent'
+        )
+
+        # Mock agent with ARN
+        mock_checker.bedrock_agent.get_agent.return_value = {
+            'agent': {
+                'agentId': 'agent-same',
+                'agentName': 'SameAccountAgent',
+                'agentArn': 'arn:aws:bedrock:us-east-1:111111111111:agent/agent-same',
+                'agentResourceRoleArn': 'arn:aws:iam::111111111111:role/AgentRole'
+            }
+        }
+
+        # Mock KB associations
+        mock_checker.bedrock_agent.list_agent_knowledge_bases = MagicMock(return_value={
+            'agentKnowledgeBaseSummaries': [{
+                'knowledgeBaseId': 'kb-same',
+                'knowledgeBaseState': 'ENABLED'
+            }]
+        })
+
+        # Mock KB from same account (111111111111)
+        mock_checker.bedrock_agent.get_knowledge_base = MagicMock(return_value={
+            'knowledgeBase': {
+                'knowledgeBaseId': 'kb-same',
+                'name': 'SameAccountKB',
+                'knowledgeBaseArn': 'arn:aws:bedrock:us-east-1:111111111111:knowledge-base/kb-same',
+                'storageConfiguration': {
+                    'opensearchServerlessConfiguration': {
+                        'collectionArn': 'arn:aws:aoss:us-east-1:111111111111:collection/test'
+                    }
+                }
+            }
+        })
+
+        agent_checks = AgentSecurityChecks(mock_checker)
+        findings = agent_checks.check_agent_knowledge_base_access()
+
+        assert len(findings) == 0
+
+    def test_agent_no_kb_associations_no_findings(self, mock_checker):
+        """Test agent with no KB associations - no findings."""
+        setup_agent_mock(
+            mock_checker.bedrock_agent,
+            agent_id='agent-no-kb',
+            agent_name='NoKBAgent'
+        )
+
+        mock_checker.bedrock_agent.get_agent.return_value = {
+            'agent': {
+                'agentId': 'agent-no-kb',
+                'agentName': 'NoKBAgent',
+                'agentArn': 'arn:aws:bedrock:us-east-1:111111111111:agent/agent-no-kb',
+                'agentResourceRoleArn': 'arn:aws:iam::111111111111:role/AgentRole'
+            }
+        }
+
+        # Mock no KB associations
+        mock_checker.bedrock_agent.list_agent_knowledge_bases = MagicMock(return_value={
+            'agentKnowledgeBaseSummaries': []
+        })
+
+        agent_checks = AgentSecurityChecks(mock_checker)
+        findings = agent_checks.check_agent_knowledge_base_access()
+
+        assert len(findings) == 0

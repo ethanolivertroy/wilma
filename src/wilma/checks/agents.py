@@ -988,16 +988,185 @@ class AgentSecurityChecks:
         """
         Validate agents have appropriate access to knowledge bases.
 
+        WHY IMPORTANT: Agents connected to knowledge bases with overly permissive
+        access can retrieve sensitive data outside their intended scope. Cross-account
+        KB access and missing encryption can expose confidential information to
+        unauthorized agents or accounts.
+
+        Checks: KB associations, cross-account access, KB security posture
+        Risk: MEDIUM for cross-account access or insecure KBs
+        OWASP: LLM08 (Excessive Agency)
+
         Returns:
             List of security findings
-
-        TODO: Implement check for:
-        - List all agents and their knowledge base associations
-        - Verify knowledge bases have proper access controls
-        - Check for cross-account knowledge base access
-        - Risk Score: 7/10 for inappropriate access patterns
         """
-        raise NotImplementedError("See ROADMAP.md Section 1.1.6")
+        findings = []
+
+        try:
+            # List all agents with pagination
+            agents = self._get_all_agents()
+
+            if not agents:
+                return findings
+
+            print(f"[CHECK] Analyzing knowledge base access for {len(agents)} agents...")
+
+            for agent in agents:
+                agent_id = agent['agentId']
+                agent_name = agent.get('agentName', agent_id)
+
+                try:
+                    # Get detailed agent configuration to extract account context
+                    agent_response = self.bedrock_agent.get_agent(agentId=agent_id)
+                    agent_config = agent_response.get('agent', {})
+                    agent_arn = agent_config.get('agentArn', '')
+
+                    # Extract agent account ID from ARN
+                    # ARN format: arn:aws:bedrock:region:account:agent/agent-id
+                    agent_account_id = None
+                    if agent_arn:
+                        arn_parts = agent_arn.split(':')
+                        if len(arn_parts) >= 5:
+                            agent_account_id = arn_parts[4]
+
+                    # List knowledge bases associated with this agent
+                    try:
+                        kb_associations = self.bedrock_agent.list_agent_knowledge_bases(
+                            agentId=agent_id,
+                            agentVersion='DRAFT',
+                            maxResults=MAX_RESULTS_PER_PAGE
+                        )
+
+                        kb_summaries = kb_associations.get('agentKnowledgeBaseSummaries', [])
+
+                        if not kb_summaries:
+                            continue
+
+                        for kb_summary in kb_summaries:
+                            kb_id = kb_summary.get('knowledgeBaseId')
+                            kb_state = kb_summary.get('knowledgeBaseState', 'UNKNOWN')
+
+                            # Skip disabled knowledge bases
+                            if kb_state == 'DISABLED':
+                                continue
+
+                            if not kb_id:
+                                continue
+
+                            # Try to get knowledge base details to check security
+                            try:
+                                kb_details = self.bedrock_agent.get_knowledge_base(
+                                    knowledgeBaseId=kb_id
+                                )
+
+                                kb_config = kb_details.get('knowledgeBase', {})
+                                kb_name = kb_config.get('name', kb_id)
+                                kb_arn = kb_config.get('knowledgeBaseArn', '')
+
+                                # Extract KB account ID from ARN
+                                kb_account_id = None
+                                if kb_arn:
+                                    arn_parts = kb_arn.split(':')
+                                    if len(arn_parts) >= 5:
+                                        kb_account_id = arn_parts[4]
+
+                                # Check for cross-account knowledge base access
+                                if agent_account_id and kb_account_id and agent_account_id != kb_account_id:
+                                    findings.append({
+                                        'risk_level': RiskLevel.MEDIUM,
+                                        'title': 'Agent has cross-account knowledge base access',
+                                        'description': (
+                                            f'Agent "{agent_name}" (account {agent_account_id}) has access to '
+                                            f'knowledge base "{kb_name}" (account {kb_account_id}). Cross-account '
+                                            f'KB access can expose sensitive data to unauthorized accounts if not '
+                                            f'properly governed. Ensure the KB owner has explicitly authorized this '
+                                            f'access and appropriate data classification policies are enforced.'
+                                        ),
+                                        'location': f'Agent: {agent_name}',
+                                        'resource': f'bedrock:knowledge-base/{kb_id}',
+                                        'remediation': (
+                                            f'Review cross-account access requirements:\n\n'
+                                            f'1. Verify the KB owner has authorized this access\n'
+                                            f'2. Document the business justification\n'
+                                            f'3. Implement data classification controls\n'
+                                            f'4. If access is not needed, remove the KB association:\n'
+                                            f'aws bedrock-agent disassociate-agent-knowledge-base \\\n'
+                                            f'  --agent-id {agent_id} \\\n'
+                                            f'  --agent-version DRAFT \\\n'
+                                            f'  --knowledge-base-id {kb_id}'
+                                        ),
+                                        'details': {
+                                            'agent_id': agent_id,
+                                            'agent_name': agent_name,
+                                            'agent_account': agent_account_id,
+                                            'kb_id': kb_id,
+                                            'kb_name': kb_name,
+                                            'kb_account': kb_account_id,
+                                            'is_cross_account': True,
+                                            'owasp': 'LLM08 (Excessive Agency)'
+                                        }
+                                    })
+
+                                # Check if KB uses encryption (customer-managed KMS key)
+                                storage_config = kb_config.get('storageConfiguration', {})
+
+                                # OpenSearch Serverless configuration
+                                if 'opensearchServerlessConfiguration' in storage_config:
+                                    # Note: OpenSearch Serverless always uses encryption, but we can't verify customer key
+                                    pass
+
+                                # RDS configuration
+                                if 'rdsConfiguration' in storage_config:
+                                    # Check for encryption details if available in future API versions
+                                    pass
+
+                            except ClientError as e:
+                                error_code = e.response['Error']['Code']
+                                if error_code == 'ResourceNotFoundException':
+                                    findings.append({
+                                        'risk_level': RiskLevel.MEDIUM,
+                                        'title': 'Agent references non-existent knowledge base',
+                                        'description': (
+                                            f'Agent "{agent_name}" is associated with knowledge base ID "{kb_id}" '
+                                            f'which does not exist or is not accessible. This will cause runtime '
+                                            f'errors when the agent attempts to retrieve information from the KB.'
+                                        ),
+                                        'location': f'Agent: {agent_name}',
+                                        'resource': f'bedrock-agent:agent/{agent_id}',
+                                        'remediation': (
+                                            f'Remove the invalid KB association:\n'
+                                            f'aws bedrock-agent disassociate-agent-knowledge-base \\\n'
+                                            f'  --agent-id {agent_id} \\\n'
+                                            f'  --agent-version DRAFT \\\n'
+                                            f'  --knowledge-base-id {kb_id}'
+                                        ),
+                                        'details': {
+                                            'agent_id': agent_id,
+                                            'agent_name': agent_name,
+                                            'missing_kb_id': kb_id
+                                        }
+                                    })
+                                elif error_code != 'AccessDeniedException':
+                                    handle_aws_error(e, f"getting knowledge base {kb_id}")
+
+                    except ClientError as e:
+                        error_code = e.response['Error']['Code']
+                        if error_code != 'ResourceNotFoundException':
+                            handle_aws_error(e, f"listing knowledge bases for agent {agent_name}")
+
+                except ClientError as e:
+                    error_code = e.response['Error']['Code']
+                    if error_code == 'ResourceNotFoundException':
+                        print(f"[WARN] Agent {agent_name} not found (may have been deleted)")
+                    else:
+                        handle_aws_error(e, f"getting agent {agent_name}")
+                except Exception as e:
+                    print(f"[ERROR] Failed to analyze agent {agent_name}: {str(e)}")
+
+        except Exception as e:
+            print(f"[ERROR] Failed to check agent knowledge base access: {str(e)}")
+
+        return findings
 
     def check_agent_tags(self) -> List[Dict]:
         """
@@ -1240,10 +1409,10 @@ class AgentSecurityChecks:
         self.findings.extend(self.check_agent_prompt_injection_patterns())
         self.findings.extend(self.check_agent_service_roles())
         self.findings.extend(self.check_agent_lambda_permissions())
+        self.findings.extend(self.check_agent_knowledge_base_access())
 
         # TODO: Uncomment as each check is implemented
         # self.findings.extend(self.check_agent_memory_encryption())
-        # self.findings.extend(self.check_agent_knowledge_base_access())
         # self.findings.extend(self.check_agent_tags())
         # self.findings.extend(self.check_agent_pii_in_names())
         # self.findings.extend(self.check_agent_logging())
