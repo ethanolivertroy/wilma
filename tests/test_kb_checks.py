@@ -43,10 +43,10 @@ class TestKBDataSourceEncryption:
 
         # Run check
         kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
-        kb_checks.check_s3_bucket_encryption()
+        findings = kb_checks.check_s3_bucket_encryption()
 
         # Verify HIGH finding for unencrypted data source
-        high_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.HIGH]
+        high_findings = [f for f in findings if f.get('risk_level') == RiskLevel.HIGH]
         assert len(high_findings) > 0
 
     def test_encrypted_s3_data_source(self, mock_checker):
@@ -139,10 +139,10 @@ class TestKBVectorStoreEncryption:
 
         # Run check
         kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
-        kb_checks.check_vector_store_encryption()
+        findings = kb_checks.check_vector_store_encryption()
 
         # Verify HIGH finding for AWS-owned key (not customer-managed)
-        high_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.HIGH]
+        high_findings = [f for f in findings if f.get('risk_level') == RiskLevel.HIGH]
         assert len(high_findings) > 0
 
     def test_encrypted_opensearch_collection(self, mock_checker):
@@ -223,10 +223,10 @@ class TestKBChunkingConfiguration:
 
         # Run check
         kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
-        kb_checks.check_knowledge_base_chunking_config()
+        findings = kb_checks.check_knowledge_base_chunking_config()
 
         # Verify MEDIUM finding for excessive chunk size
-        medium_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.MEDIUM]
+        medium_findings = [f for f in findings if f.get('risk_level') == RiskLevel.MEDIUM]
         assert len(medium_findings) > 0
 
     def test_acceptable_chunk_size(self, mock_checker):
@@ -315,10 +315,10 @@ class TestKBIAMPermissions:
 
         # Run check
         kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
-        kb_checks.check_knowledge_base_access_patterns()
+        findings = kb_checks.check_knowledge_base_access_patterns()
 
         # Verify CRITICAL finding for wildcard permissions
-        critical_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.CRITICAL]
+        critical_findings = [f for f in findings if f.get('risk_level') == RiskLevel.CRITICAL]
         assert len(critical_findings) > 0
 
     def test_least_privilege_permissions(self, mock_checker):
@@ -409,10 +409,10 @@ class TestKBPIIDetection:
 
         # Run check
         kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
-        kb_checks.check_pii_in_embeddings()
+        findings = kb_checks.check_pii_in_embeddings()
 
         # Verify HIGH finding for PII in bucket name
-        high_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.HIGH]
+        high_findings = [f for f in findings if f.get('risk_level') == RiskLevel.HIGH]
         assert len(high_findings) > 0
 
     def test_no_pii_in_metadata(self, mock_checker):
@@ -483,10 +483,10 @@ class TestKBOpenSearchAccessPolicies:
 
         # Run check
         kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
-        kb_checks.check_vector_store_access_control()
+        findings = kb_checks.check_vector_store_access_control()
 
         # Verify CRITICAL finding for wildcard principal
-        critical_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.CRITICAL]
+        critical_findings = [f for f in findings if f.get('risk_level') == RiskLevel.CRITICAL]
         assert len(critical_findings) > 0
 
     def test_restrictive_data_access_policy(self, mock_checker):
