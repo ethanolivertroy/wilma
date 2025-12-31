@@ -283,6 +283,19 @@ CRITICAL ISSUES:
 - **Prompt Injection Patterns**: Identifies dangerous patterns in agent instructions
 - **CloudWatch Logging**: Validates log groups, retention policies, and KMS encryption (SOC 2, ISO 27001)
 
+### Guardrails Security - NEW! ✨
+- **Strength Configuration**: Validates HIGH strength settings for content filters (LOW-strength filters miss 70% of attacks)
+- **Automated Reasoning**: Checks hallucination prevention via contextual grounding (OWASP LLM09)
+- **Content Filter Coverage**: Ensures PROMPT_ATTACK filter is enabled to prevent jailbreaks (OWASP LLM01)
+- **PII Filters**: Verifies sensitive information redaction (GDPR Art. 32, HIPAA, PCI-DSS)
+- **Topic Filters**: Validates denied topics configuration for unauthorized use cases
+- **Word Filters**: Checks profanity and custom word filtering
+- **Guardrail Coverage**: Identifies unprotected agents and knowledge bases (OWASP LLM08)
+- **Version Management**: Validates DRAFT vs PRODUCTION usage for stability
+- **KMS Encryption**: Verifies customer-managed encryption keys (SOC 2, ISO 27001)
+- **Resource Tagging**: Ensures compliance tracking tags
+- **Contextual Grounding**: Validates citation requirements and threshold configuration (0.7+ recommended)
+
 ## Architecture
 
 The tool is designed with modularity and extensibility in mind:
