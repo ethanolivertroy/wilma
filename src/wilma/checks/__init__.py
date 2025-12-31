@@ -10,6 +10,7 @@ the Free Software Foundation, either version 3 of the License, or
 """
 
 from wilma.checks.agents import AgentSecurityChecks
+from wilma.checks.fine_tuning import FineTuningSecurityChecks
 from wilma.checks.genai import GenAISecurityChecks
 from wilma.checks.guardrails import GuardrailSecurityChecks
 from wilma.checks.iam import IAMSecurityChecks
@@ -18,11 +19,9 @@ from wilma.checks.logging import LoggingSecurityChecks
 from wilma.checks.network import NetworkSecurityChecks
 from wilma.checks.tagging import TaggingSecurityChecks
 
-# Planned for future versions - See ROADMAP.md for implementation details
-# from wilma.checks.fine_tuning import FineTuningSecurityChecks
-
 __all__ = [
     "AgentSecurityChecks",
+    "FineTuningSecurityChecks",
     "GenAISecurityChecks",
     "GuardrailSecurityChecks",
     "IAMSecurityChecks",
@@ -30,6 +29,4 @@ __all__ = [
     "LoggingSecurityChecks",
     "NetworkSecurityChecks",
     "TaggingSecurityChecks",
-    # Planned for future versions - See ROADMAP.md
-    # "FineTuningSecurityChecks",
 ]

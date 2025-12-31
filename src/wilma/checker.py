@@ -19,6 +19,7 @@ import boto3
 
 from wilma.checks import (
     AgentSecurityChecks,
+    FineTuningSecurityChecks,
     GenAISecurityChecks,
     GuardrailSecurityChecks,
     IAMSecurityChecks,
@@ -37,6 +38,7 @@ class BedrockSecurityChecker:
 
     Coordinates security checks across:
     - Agents Security (10 comprehensive checks) - OWASP LLM08, LLM01
+    - Fine-Tuning Security (11 comprehensive checks) - OWASP LLM03, LLM04, LLM06
     - Traditional AWS security (IAM, network, logging)
     - GenAI-specific threats (OWASP LLM Top 10, MITRE ATLAS)
     - Guardrails Security (11 comprehensive checks) - OWASP LLM01, LLM02, LLM09
@@ -96,6 +98,7 @@ class BedrockSecurityChecker:
 
         # Initialize specialized check modules (each receives this checker instance)
         self.agent_checks = AgentSecurityChecks(self)
+        self.fine_tuning_checks = FineTuningSecurityChecks(self)
         self.genai_checks = GenAISecurityChecks(self)
         self.guardrail_checks = GuardrailSecurityChecks(self)
         self.iam_checks = IAMSecurityChecks(self)
@@ -179,11 +182,12 @@ class BedrockSecurityChecker:
         1. Agents - 10 checks for autonomous AI systems (OWASP LLM08, LLM01)
         2. Guardrails - 11 checks for content filtering & hallucination prevention (OWASP LLM01, LLM02, LLM09)
         3. Knowledge Bases - 12 checks for RAG security (OWASP LLM03, LLM06, LLM07)
-        4. IAM & Access Control - Who can use Bedrock and how
-        5. Logging & Monitoring - Audit trails and anomaly detection
-        6. Network Security - VPC endpoints and private connectivity
-        7. Resource Tagging - Organization and compliance tracking
-        8. GenAI Threats - OWASP LLM01 (prompt injection), PII leaks, cost abuse
+        4. Fine-Tuning - 11 checks for training data security (OWASP LLM03, LLM04, LLM06)
+        5. IAM & Access Control - Who can use Bedrock and how
+        6. Logging & Monitoring - Audit trails and anomaly detection
+        7. Network Security - VPC endpoints and private connectivity
+        8. Resource Tagging - Organization and compliance tracking
+        9. GenAI Threats - OWASP LLM01 (prompt injection), PII leaks, cost abuse
 
         Returns:
             List of finding dictionaries with risk levels and remediation steps
@@ -202,6 +206,9 @@ class BedrockSecurityChecker:
 
         # Critical: RAG-specific security (data poisoning, PII, prompt injection)
         self.kb_checks.run_all_checks()
+
+        # Critical: Model fine-tuning security (training data protection, OWASP LLM03, LLM04, LLM06)
+        self.fine_tuning_checks.run_all_checks()
 
         # Foundation: Identity and access control
         self.iam_checks.check_model_access_audit()
