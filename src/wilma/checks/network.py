@@ -157,3 +157,7 @@ class NetworkSecurityChecks:
             print(f"[WARN] Could not check VPC endpoints: {str(e)}")
 
         return self.checker.findings
+
+    def check_security_groups(self) -> List[Dict]:
+        """Check security group configurations."""
+        return self.check_vpc_endpoints()

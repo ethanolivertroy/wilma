@@ -89,9 +89,24 @@ class TestAWSManagedPolicies:
             AssumeRolePolicyDocument=json.dumps(trust_policy)
         )
 
+        # Create a mock AdministratorAccess policy first (since moto doesn't have AWS managed policies)
+        admin_policy_doc = {
+            'Version': '2012-10-17',
+            'Statement': [{
+                'Effect': 'Allow',
+                'Action': '*',
+                'Resource': '*'
+            }]
+        }
+        
+        admin_policy = mock_checker.iam.create_policy(
+            PolicyName='AdministratorAccess',
+            PolicyDocument=json.dumps(admin_policy_doc)
+        )
+        
         mock_checker.iam.attach_role_policy(
             RoleName='BedrockExecutionRole',
-            PolicyArn='arn:aws:iam::aws:policy/AdministratorAccess'
+            PolicyArn=admin_policy['Policy']['Arn']
         )
 
         # Run check
@@ -101,7 +116,7 @@ class TestAWSManagedPolicies:
         # Verify CRITICAL finding for AdministratorAccess
         critical_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.CRITICAL]
         assert len(critical_findings) > 0
-        assert any('AdministratorAccess' in f.get('title', '') for f in critical_findings)
+        assert any('AdministratorAccess' in f.get('issue', '') or 'AdministratorAccess' in f.get('technical_details', '') for f in critical_findings)
 
     def test_power_user_access_detected(self, mock_checker):
         """Test detection of PowerUserAccess policy."""
@@ -120,9 +135,32 @@ class TestAWSManagedPolicies:
             AssumeRolePolicyDocument=json.dumps(trust_policy)
         )
 
+        # Create a mock PowerUserAccess policy first (since moto doesn't have AWS managed policies)
+        power_user_policy_doc = {
+            'Version': '2012-10-17',
+            'Statement': [{
+                'Effect': 'Allow',
+                'Action': '*',
+                'Resource': '*'
+            }, {
+                'Effect': 'Deny',
+                'Action': [
+                    'iam:*',
+                    'organizations:*',
+                    'account:*'
+                ],
+                'Resource': '*'
+            }]
+        }
+        
+        power_user_policy = mock_checker.iam.create_policy(
+            PolicyName='PowerUserAccess',
+            PolicyDocument=json.dumps(power_user_policy_doc)
+        )
+        
         mock_checker.iam.attach_role_policy(
             RoleName='BedrockRole',
-            PolicyArn='arn:aws:iam::aws:policy/PowerUserAccess'
+            PolicyArn=power_user_policy['Policy']['Arn']
         )
 
         # Run check

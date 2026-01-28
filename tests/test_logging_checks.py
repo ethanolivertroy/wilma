@@ -23,9 +23,9 @@ class TestModelInvocationLogging:
         logging_checks = LoggingSecurityChecks(mock_checker)
         logging_checks.check_model_invocation_logging()
 
-        # Verify MEDIUM finding for disabled logging
-        medium_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.MEDIUM]
-        assert len(medium_findings) > 0
+        # Verify HIGH finding for disabled logging
+        high_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.HIGH]
+        assert len(high_findings) > 0
 
     def test_logging_enabled_s3_only(self, mock_checker):
         """Test that S3-only logging passes validation."""

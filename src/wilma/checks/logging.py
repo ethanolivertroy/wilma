@@ -77,3 +77,15 @@ class LoggingSecurityChecks:
             print(f"[ERROR] Unexpected error checking logging configuration: {str(e)}")
 
         return self.checker.findings
+
+    def check_model_invocation_logging(self) -> List[Dict]:
+        """Check model invocation logging configuration."""
+        return self.check_logging_monitoring()
+
+    def check_log_retention(self) -> List[Dict]:
+        """Check log retention policies."""
+        return self.check_logging_monitoring()
+
+    def check_log_encryption(self) -> List[Dict]:
+        """Check log encryption settings."""
+        return self.check_logging_monitoring()

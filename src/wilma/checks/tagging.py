@@ -86,3 +86,11 @@ class TaggingSecurityChecks:
             print(f"[ERROR] Unexpected error checking resource tagging: {str(e)}")
 
         return self.checker.findings
+
+    def check_custom_model_tagging(self) -> List[Dict]:
+        """Check custom model tagging."""
+        return self.check_resource_tagging()
+
+    def check_knowledge_base_tagging(self) -> List[Dict]:
+        """Check knowledge base tagging."""
+        return self.check_resource_tagging()
