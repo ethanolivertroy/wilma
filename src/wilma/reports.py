@@ -1,24 +1,15 @@
 """
-Security Report Generation
+Security report generation for Wilma.
 
-Formats security findings for human-readable and machine-parseable output with rich terminal UI.
-
-Output Formats:
-- Standard Mode (text): Beautiful terminal UI with tables, panels, and colors
-- Learn Mode (text): Educational with security concept explanations
-- JSON: Machine-parseable for CI/CD integration
-
-Report Structure:
-- Summary (counts by risk level, good practices)
-- Findings grouped by severity (CRITICAL > HIGH > MEDIUM > LOW)
-- Each finding includes: risk score, explanation, technical details, fix command
-
-Copyright (C) 2024  Ethan Troy
-Licensed under GPL v3
+Reports are built from the versioned assessment schema in wilma.assessment so
+text output and JSON output describe the same posture result.
 """
 
+import io
 import json
-from datetime import datetime
+import sys
+from datetime import datetime, timezone
+from typing import Any
 
 from rich import box
 from rich.console import Console
@@ -27,337 +18,342 @@ from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 
-from wilma.enums import RiskLevel, SecurityMode
+from wilma.assessment import (
+    BEDROCK_SECURITY_INDICATORS,
+    MANUAL_EVIDENCE_ITEMS,
+    AssessmentBuilder,
+)
+from wilma.enums import RiskLevel
 
 
 class ReportGenerator:
     """
-    Formats security findings into beautiful terminal reports using Rich.
+    Formats Wilma assessments for terminal and JSON output.
 
-    Supports both human-friendly rich text and machine-parseable JSON.
+    Rich text can be emitted to stdout or captured for --output-file. JSON is
+    always returned as a string.
     """
 
-    def __init__(self, checker):
-        """Initialize with BedrockSecurityChecker containing findings."""
+    def __init__(self, checker=None, presentation_mode: str = "standard", emit: bool = True):
         self.checker = checker
-        self.console = Console()
+        self.presentation_mode = presentation_mode
+        self._buffer = None if emit else io.StringIO()
+        self.console = Console(file=self._buffer or sys.stdout, record=True)
 
-    def generate_report(self, output_format: str = 'text') -> str:
+    def generate_report(self, output_format: str = "text", explain: bool = False) -> str:
         """
-        Generate security report in specified format.
+        Generate a report in the specified format.
 
         Args:
-            output_format: 'text' (default) or 'json'
-
-        Returns:
-            Formatted report string (or prints directly for rich text)
+            output_format: "text" or "json".
+            explain: Render the auditor-oriented explanation view instead of a scan result.
         """
-        if output_format == 'json':
+        if explain:
+            self._generate_explain_report_rich()
+            return self.console.export_text()
+
+        if output_format == "json":
             return self._generate_json_report()
-        elif self.checker.mode == SecurityMode.LEARN:
-            self._generate_learn_report_rich()
-            return ""  # Rich prints directly
-        else:  # STANDARD mode
-            self._generate_standard_report_rich()
-            return ""  # Rich prints directly
+
+        self._generate_standard_report_rich()
+        return self.console.export_text()
+
+    def _assessment(self) -> dict[str, Any]:
+        return AssessmentBuilder(self.checker).build()
 
     def _generate_standard_report_rich(self):
-        """Generate a beautiful security report using Rich."""
-        # Header
+        assessment = self._assessment()
+        score = assessment["posture_score"]
+        confidence = assessment["assessment_confidence"]
+        summary = assessment["summary"]
+
+        if self.presentation_mode == "yabba_dabba_doo":
+            title = "WILMA'S BEDROCK STONE TABLET"
+            subtitle = "Yabba Dabba Doo mode - same evidence, more fun"
+            border_style = "magenta"
+        else:
+            title = "WILMA BEDROCK SECURITY POSTURE ASSESSMENT"
+            subtitle = "AWS Bedrock security best-practice and framework-mapped assessment"
+            border_style = "cyan"
+
         header_text = Text()
-        header_text.append("WILMA SECURITY REPORT\n", style="bold cyan")
-        header_text.append("AWS Bedrock Configuration Checker", style="dim")
+        header_text.append(f"{title}\n", style=f"bold {border_style}")
+        header_text.append(subtitle, style="dim")
+        self.console.print(Panel(header_text, box=box.DOUBLE, border_style=border_style, padding=(1, 2)))
 
-        self.console.print(Panel(
-            header_text,
-            box=box.DOUBLE,
-            border_style="cyan",
-            padding=(1, 2)
-        ))
+        self._print_account_context(assessment)
+        self._print_score_summary(score, confidence, summary)
+        self._print_indicator_scorecard(assessment["bedrock_security_indicators"])
+        self._print_good_practices(assessment["good_practices"])
+        self._print_findings(assessment["findings"])
+        self._print_manual_evidence(assessment["manual_evidence_needed"])
+        self._print_footer(assessment)
 
-        # Account info
+    def _print_account_context(self, assessment: dict[str, Any]):
         info_table = Table.grid(padding=(0, 2))
         info_table.add_column(style="bold")
         info_table.add_column()
-        info_table.add_row("Account:", self.checker.account_id)
-        info_table.add_row("Region:", self.checker.region)
-        info_table.add_row("Scan Time:", datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"))
+        info_table.add_row("Account:", str(assessment.get("account_id") or "unknown"))
+        info_table.add_row("Region:", str(assessment.get("region") or "unknown"))
+        info_table.add_row("Scan Time:", datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"))
+        info_table.add_row("Schema:", assessment["schema_version"])
         self.console.print(info_table)
         self.console.print()
 
-        # Summary counts
-        critical_count = sum(1 for f in self.checker.findings if f['risk_level'] == RiskLevel.CRITICAL)
-        high_count = sum(1 for f in self.checker.findings if f['risk_level'] == RiskLevel.HIGH)
-        medium_count = sum(1 for f in self.checker.findings if f['risk_level'] == RiskLevel.MEDIUM)
-        low_count = sum(1 for f in self.checker.findings if f['risk_level'] == RiskLevel.LOW)
+    def _print_score_summary(self, score: dict[str, Any], confidence: dict[str, Any], summary: dict[str, Any]):
+        if self.presentation_mode == "yabba_dabba_doo":
+            score_title = "Stone Tablet Summary"
+            score_label = f"Fred, your Bedrock Security Posture is {score['rating']} ({score['score']}/100)"
+        else:
+            score_title = "Posture Summary"
+            score_label = f"Bedrock Security Posture: {score['rating']} ({score['score']}/100)"
 
-        # Summary table
-        summary = Table(title="Security Summary", box=box.ROUNDED, show_header=True, header_style="bold magenta")
-        summary.add_column("Category", style="cyan", width=30)
-        summary.add_column("Count", justify="center", width=10)
-        summary.add_column("Status", justify="center", width=20)
-
-        if self.checker.good_practices:
-            summary.add_row(
-                "✓ Good Practices",
-                str(len(self.checker.good_practices)),
-                Text("PASSING", style="bold green")
-            )
-
-        if critical_count > 0:
-            summary.add_row(
-                "⚠ Critical Issues",
-                str(critical_count),
-                Text("IMMEDIATE ACTION REQUIRED", style="bold red blink")
-            )
-
-        if high_count > 0:
-            summary.add_row(
-                "◆ High Risk Issues",
-                str(high_count),
-                Text("ADDRESS SOON", style="bold red")
-            )
-
-        if medium_count > 0:
-            summary.add_row(
-                "▲ Medium Risk Issues",
-                str(medium_count),
-                Text("PLAN REMEDIATION", style="bold yellow")
-            )
-
-        if low_count > 0:
-            summary.add_row(
-                "◇ Low Priority Items",
-                str(low_count),
-                Text("BEST PRACTICE", style="bold blue")
-            )
-
-        self.console.print(summary)
+        score_table = Table(title=score_title, box=box.ROUNDED, show_header=True, header_style="bold cyan")
+        score_table.add_column("Metric", style="bold", width=28)
+        score_table.add_column("Value", width=68)
+        score_table.add_row("Posture Score", score_label)
+        score_table.add_row(
+            "Assessment Confidence",
+            f"{confidence['rating']} ({confidence['score']}%) - {confidence['assessed_indicators']}/{confidence['total_indicators']} indicators assessed",
+        )
+        score_table.add_row(
+            "Finding Counts",
+            (
+                f"{summary['critical']} critical, {summary['high']} high, "
+                f"{summary['medium']} medium, {summary['low']} low"
+            ),
+        )
+        score_table.add_row("Audit Readiness", "Incomplete - manual evidence checklist generated")
+        score_table.add_row("Main Drivers", "; ".join(score["drivers"]))
+        self.console.print(score_table)
         self.console.print()
 
-        # Good practices
-        if self.checker.good_practices:
-            self.console.print(Rule("[bold green]What's Working Well", style="green"))
-            practices_table = Table(box=box.SIMPLE, show_header=False)
-            practices_table.add_column("", style="green")
-            for practice in self.checker.good_practices:
-                practices_table.add_row(f"✓ {practice['practice']}")
-            self.console.print(practices_table)
+        if confidence["blind_spots"]:
+            blind_spots = ", ".join(item["indicator"] for item in confidence["blind_spots"])
+            self.console.print(Panel(
+                Text(f"Blind spots: {blind_spots}", style="bold yellow"),
+                title="Assessment Confidence",
+                border_style="yellow",
+                box=box.ROUNDED,
+            ))
             self.console.print()
 
-        # Findings by severity
-        for risk_level in [RiskLevel.CRITICAL, RiskLevel.HIGH, RiskLevel.MEDIUM, RiskLevel.LOW]:
-            level_findings = [f for f in self.checker.findings if f['risk_level'] == risk_level]
+    def _print_indicator_scorecard(self, indicators: list[dict[str, Any]]):
+        table = Table(title="Bedrock Security Indicators", box=box.ROUNDED, show_header=True, header_style="bold magenta")
+        table.add_column("Indicator", style="cyan", width=32)
+        table.add_column("Score", justify="center", width=8)
+        table.add_column("Status", width=20)
+        table.add_column("Confidence", justify="center", width=12)
+        table.add_column("Findings", justify="center", width=10)
 
-            if level_findings:
-                # Color scheme based on risk level
-                if risk_level == RiskLevel.CRITICAL:
-                    style = "bold red"
-                    box_style = "red"
-                elif risk_level == RiskLevel.HIGH:
-                    style = "bold red"
-                    box_style = "red"
-                elif risk_level == RiskLevel.MEDIUM:
-                    style = "bold yellow"
-                    box_style = "yellow"
-                else:
-                    style = "bold blue"
-                    box_style = "blue"
+        for indicator in indicators:
+            score = "n/a" if indicator["score"] is None else str(indicator["score"])
+            style = self._status_style(indicator["status"])
+            table.add_row(
+                indicator["name"],
+                score,
+                Text(indicator["status"], style=style),
+                indicator["confidence"],
+                str(indicator["finding_count"]),
+            )
 
-                self.console.print(Rule(f"[{style}]{risk_level.symbol} {risk_level.label} Issues", style=box_style))
+        self.console.print(table)
+        self.console.print()
 
-                for i, finding in enumerate(level_findings, 1):
-                    # Create finding table
-                    finding_table = Table(
-                        title=f"{i}. {finding['issue']}",
-                        box=box.ROUNDED,
-                        show_header=False,
-                        title_style=style,
-                        border_style=box_style,
-                        padding=(0, 1)
-                    )
-                    finding_table.add_column("Field", style="bold", width=18)
-                    finding_table.add_column("Value", width=80)
+    def _print_good_practices(self, good_practices: list[dict[str, Any]]):
+        if not good_practices:
+            return
 
-                    finding_table.add_row("Location", finding['resource'])
-                    finding_table.add_row("Risk Score", f"{finding['risk_score']}/10")
+        self.console.print(Rule("[bold green]What Is Working", style="green"))
+        practices_table = Table(box=box.SIMPLE, show_header=False)
+        practices_table.add_column("", style="green")
+        for practice in good_practices:
+            category = practice.get("category", "Good Practice")
+            practices_table.add_row(f"{category}: {practice.get('practice', '')}")
+        self.console.print(practices_table)
+        self.console.print()
 
-                    if finding.get('learn_more'):
-                        finding_table.add_row("What This Means", finding['learn_more'])
+    def _print_findings(self, findings: list[dict[str, Any]]):
+        if not findings:
+            self.console.print(Panel(
+                Text("No automated security findings were recorded.", style="bold green"),
+                title="Findings",
+                border_style="green",
+                box=box.ROUNDED,
+            ))
+            self.console.print()
+            return
 
-                    if finding.get('technical_details'):
-                        finding_table.add_row("Technical Details", finding['technical_details'])
+        severity_order = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]
+        for severity in severity_order:
+            severity_findings = [finding for finding in findings if finding["severity"] == severity]
+            if not severity_findings:
+                continue
 
-                    # Fix command in a highlighted panel
-                    if finding.get('fix_command'):
-                        finding_table.add_row(
-                            "Fix Command",
-                            Text(finding['fix_command'], style="bold cyan on black")
-                        )
-                    else:
-                        finding_table.add_row("Recommendation", finding['recommendation'])
+            style = self._severity_style(severity)
+            self.console.print(Rule(f"[{style}]{severity} Findings", style=style.split()[-1]))
+            for index, finding in enumerate(severity_findings, 1):
+                finding_table = Table(
+                    title=f"{index}. {finding['title']}",
+                    box=box.ROUNDED,
+                    show_header=False,
+                    title_style=style,
+                    border_style=style.split()[-1],
+                    padding=(0, 1),
+                )
+                finding_table.add_column("Field", style="bold", width=18)
+                finding_table.add_column("Value", width=88)
 
-                    self.console.print(finding_table)
-                    self.console.print()
+                finding_table.add_row("Indicator", finding["indicator"])
+                finding_table.add_row("Resource", finding["resource"])
+                finding_table.add_row("Risk Score", f"{finding['risk_score']}/10")
+                finding_table.add_row("Why It Matters", finding["description"])
+                finding_table.add_row("Recommendation", finding["recommendation"])
 
-        # Footer tips
-        tips_panel = Panel(
-            Text.from_markup(
-                "💡 [bold]Tips:[/bold]\n"
-                "  • Fix [bold red]critical[/bold red] issues first\n"
-                "  • Run with [cyan]--learn[/cyan] to understand each check\n"
-                "  • Run with [cyan]--output json[/cyan] for CI/CD integration\n\n"
-                "[dim italic]There! That wasn't so hard, was it?[/dim italic]"
-            ),
-            title="Next Steps",
-            border_style="dim",
-            box=box.ROUNDED
+                frameworks = finding.get("framework_mappings", {})
+                mapped = self._format_frameworks(frameworks)
+                if mapped:
+                    finding_table.add_row("Mapped To", mapped)
+
+                details = finding.get("technical_details")
+                if details:
+                    finding_table.add_row("Technical Details", str(details))
+
+                if finding.get("fix_command"):
+                    finding_table.add_row("Fix Command", Text(str(finding["fix_command"]), style="bold cyan"))
+
+                self.console.print(finding_table)
+                self.console.print()
+
+    def _print_manual_evidence(self, manual_items: list[dict[str, Any]]):
+        self.console.print(Rule("[bold yellow]Manual Evidence Needed", style="yellow"))
+        table = Table(box=box.ROUNDED, show_header=True, header_style="bold yellow")
+        table.add_column("Indicator", style="cyan", width=30)
+        table.add_column("Evidence", width=58)
+        table.add_column("Frameworks", width=28)
+
+        for item in manual_items[:8]:
+            table.add_row(
+                item["indicator"],
+                item["evidence"],
+                ", ".join(item["frameworks"]),
+            )
+
+        self.console.print(table)
+        self.console.print(Text(
+            "Manual evidence affects audit readiness and assessment confidence language, not the automated posture score.",
+            style="dim",
+        ))
+        self.console.print()
+
+    def _print_footer(self, assessment: dict[str, Any]):
+        tips = Text.from_markup(
+            "[bold]Next Steps:[/bold]\n"
+            "  - Fix critical and high findings first\n"
+            "  - Use [cyan]--explain[/cyan] for the scoring and framework model\n"
+            "  - Use [cyan]--output json[/cyan] for CI, GRC ingestion, or dashboards\n"
         )
-        self.console.print(tips_panel)
+        if self.presentation_mode == "yabba_dabba_doo":
+            tips.append("\nYabba Dabba Doo mode changed presentation only; evidence, score, and exit codes are unchanged.", style="dim italic")
 
-    def _generate_learn_report_rich(self):
-        """Generate an educational report using Rich."""
-        # Header
+        self.console.print(Panel(tips, title="Next Steps", border_style="dim", box=box.ROUNDED))
+
+    def _generate_explain_report_rich(self):
         header = Panel(
-            Text("WILMA'S SECURITY EDUCATION - LEARNING MODE", justify="center", style="bold magenta"),
+            Text("WILMA EXPLAIN MODE", justify="center", style="bold magenta"),
+            subtitle="How Wilma evaluates AWS Bedrock security posture",
             box=box.DOUBLE,
-            border_style="magenta"
+            border_style="magenta",
         )
         self.console.print(header)
         self.console.print()
 
         intro = Text()
-        intro.append("Let me explain what each security check does and why it matters.\n", style="bold")
-        intro.append("Run without ", style="dim")
-        intro.append("--learn", style="cyan")
-        intro.append(" to perform the actual security audit.\n", style="dim")
+        intro.append("Wilma is a Bedrock security posture assessment tool.\n", style="bold")
+        intro.append(
+            "It groups automated AWS evidence into Bedrock Security Indicators, maps findings to external frameworks, "
+            "and separates automated posture from manual audit evidence.\n",
+            style="dim",
+        )
         self.console.print(intro)
         self.console.print()
 
-        checks = [
-            {
-                "name": "Prompt Injection Protection",
-                "description": "Prevents attackers from tricking your AI into ignoring its instructions",
-                "example": "Like someone trying to convince a security guard to let them in",
-                "why_important": "Protects your AI from generating harmful or inappropriate content",
-                "owasp": "LLM01"
-            },
-            {
-                "name": "Data Privacy Compliance",
-                "description": "Ensures personal information (PII) isn't exposed through AI logs or responses",
-                "example": "Making sure credit card numbers or SSNs don't appear in logs",
-                "why_important": "Helps you comply with privacy laws and protect user data",
-                "owasp": "LLM02"
-            },
-            {
-                "name": "Knowledge Base S3 Security",
-                "description": "Protects RAG document storage from unauthorized access and poisoning",
-                "example": "Making sure your filing cabinets aren't left unlocked on the street",
-                "why_important": "Stops attackers from injecting malicious documents into your AI's knowledge",
-                "owasp": "LLM04"
-            },
-            {
-                "name": "Vector Store Encryption",
-                "description": "Validates that vector databases (OpenSearch/Aurora) use encryption",
-                "example": "Encrypting the index cards in your library catalog",
-                "why_important": "Secures the AI embeddings that represent your documents",
-                "owasp": "LLM02"
-            },
-            {
-                "name": "Guardrail Configuration",
-                "description": "Validates content filtering and safety guardrails are properly configured",
-                "example": "Safety rails that prevent the AI from saying dangerous things",
-                "why_important": "Critical defense against prompt injection and harmful outputs",
-                "owasp": "LLM01"
-            },
-            {
-                "name": "IAM Access Control",
-                "description": "Ensures only authorized users and services can access Bedrock",
-                "example": "Like having different keys for different rooms in a building",
-                "why_important": "Prevents unauthorized use and potential abuse of your AI",
-                "owasp": "LLM06"
-            },
-            {
-                "name": "Audit Logging",
-                "description": "Keeps records of all AI model usage for security and compliance",
-                "example": "Like security camera footage - you can review who did what",
-                "why_important": "Helps detect abuse and provides evidence for investigations",
-                "owasp": "LLM10"
-            },
-            {
-                "name": "Network Security",
-                "description": "Ensures AI traffic uses private, encrypted connections via VPC",
-                "example": "Like using a secure tunnel instead of shouting across a room",
-                "why_important": "Protects sensitive data from interception",
-                "owasp": "LLM06"
-            }
-        ]
-
-        for i, check in enumerate(checks, 1):
-            check_table = Table(
-                title=f"{i}. {check['name']}",
+        for indicator in BEDROCK_SECURITY_INDICATORS:
+            table = Table(
+                title=indicator["name"],
                 box=box.ROUNDED,
                 show_header=False,
                 title_style="bold cyan",
-                border_style="cyan"
+                border_style="cyan",
             )
-            check_table.add_column("", style="bold dim", width=20)
-            check_table.add_column("", width=70)
-
-            check_table.add_row("What it does:", check['description'])
-            check_table.add_row("Example:", Text(check['example'], style="italic"))
-            check_table.add_row("Why it matters:", Text(check['why_important'], style="green"))
-            check_table.add_row("OWASP LLM:", Text(check['owasp'], style="bold magenta"))
-
-            self.console.print(check_table)
+            table.add_column("Field", style="bold dim", width=20)
+            table.add_column("Value", width=88)
+            table.add_row("Purpose", indicator["description"])
+            table.add_row("OWASP", ", ".join(indicator["frameworks"]["owasp_llm"]))
+            table.add_row("NIST AI RMF", ", ".join(indicator["frameworks"]["nist_ai_rmf"]))
+            table.add_row("NIST 800-53", ", ".join(indicator["frameworks"]["nist_800_53"]))
+            table.add_row("AIUC-1", ", ".join(indicator["frameworks"]["aiuc_1"]))
+            self.console.print(table)
             self.console.print()
 
-        # Footer
+        evidence_table = Table(title="Manual Evidence Model", box=box.ROUNDED, show_header=True, header_style="bold yellow")
+        evidence_table.add_column("Indicator", width=30)
+        evidence_table.add_column("Evidence Wilma Requests", width=72)
+        for item in MANUAL_EVIDENCE_ITEMS[:6]:
+            evidence_table.add_row(item["indicator"], item["evidence"])
+        self.console.print(evidence_table)
+        self.console.print()
+
         footer = Panel(
             Text.from_markup(
-                "[bold cyan]Ready to run a real security check?[/bold cyan]\n\n"
-                "Remove the [yellow]--learn[/yellow] flag and I'll scan your AWS Bedrock configuration:\n"
+                "[bold cyan]Run a posture assessment:[/bold cyan]\n"
                 "  [cyan]wilma[/cyan]\n\n"
-                "Or check out the comprehensive wiki:\n"
-                "  [cyan]https://github.com/ethanolivertroy/wilma/wiki[/cyan]"
+                "[bold cyan]Fun terminal presentation mode:[/bold cyan]\n"
+                "  [cyan]wilma --yabba-dabba-doo[/cyan]\n\n"
+                "[dim]--learn is kept as a compatibility alias for --explain.[/dim]"
             ),
-            title="Next Steps",
+            title="Usage",
             border_style="green",
-            box=box.ROUNDED
+            box=box.ROUNDED,
         )
         self.console.print(footer)
 
     def _generate_json_report(self) -> str:
-        """Generate a JSON report with all findings."""
-        report_data = {
-            'account_id': self.checker.account_id,
-            'region': self.checker.region,
-            'scan_time': datetime.utcnow().isoformat(),
-            'mode': self.checker.mode.value,
-            'summary': {
-                'total_findings': len(self.checker.findings),
-                'critical': sum(1 for f in self.checker.findings if f['risk_level'] == RiskLevel.CRITICAL),
-                'high': sum(1 for f in self.checker.findings if f['risk_level'] == RiskLevel.HIGH),
-                'medium': sum(1 for f in self.checker.findings if f['risk_level'] == RiskLevel.MEDIUM),
-                'low': sum(1 for f in self.checker.findings if f['risk_level'] == RiskLevel.LOW),
-                'good_practices': len(self.checker.good_practices)
-            },
-            'findings': [
-                {
-                    'risk_level': f['risk_level'].label,
-                    'risk_score': f['risk_score'],
-                    'category': f['category'],
-                    'resource': f['resource'],
-                    'issue': f['issue'],
-                    'recommendation': f['recommendation'],
-                    'fix_command': f.get('fix_command'),
-                    'learn_more': f.get('learn_more'),
-                    'technical_details': f.get('technical_details')
-                }
-                for f in self.checker.findings
-            ],
-            'good_practices': self.checker.good_practices,
-            'available_models': self.checker.available_models
-        }
+        return json.dumps(self._assessment(), indent=2, default=str)
 
-        return json.dumps(report_data, indent=2, default=str)
+    def _format_frameworks(self, frameworks: dict[str, list[str]]) -> str:
+        pieces = []
+        labels = {
+            "owasp_llm": "OWASP",
+            "nist_ai_rmf": "NIST AI RMF",
+            "nist_800_53": "NIST 800-53",
+            "aiuc_1": "AIUC-1",
+            "mitre_atlas": "MITRE ATLAS",
+        }
+        for key in ["owasp_llm", "nist_ai_rmf", "nist_800_53", "aiuc_1", "mitre_atlas"]:
+            values = frameworks.get(key)
+            if values:
+                pieces.append(f"{labels[key]}: {', '.join(values[:4])}")
+        return "\n".join(pieces)
+
+    def _severity_style(self, severity: str) -> str:
+        if severity == RiskLevel.CRITICAL.label:
+            return "bold red"
+        if severity == RiskLevel.HIGH.label:
+            return "bold red"
+        if severity == RiskLevel.MEDIUM.label:
+            return "bold yellow"
+        if severity == RiskLevel.LOW.label:
+            return "bold blue"
+        return "dim"
+
+    def _status_style(self, status: str) -> str:
+        if status == "High Risk":
+            return "bold red"
+        if status == "Needs Improvement":
+            return "bold yellow"
+        if status == "Minor Gaps":
+            return "bold blue"
+        if status == "Not Assessed":
+            return "dim"
+        return "bold green"

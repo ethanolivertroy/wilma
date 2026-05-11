@@ -84,8 +84,91 @@ class LoggingSecurityChecks:
 
     def check_log_retention(self) -> List[Dict]:
         """Check log retention policies."""
-        return self.check_logging_monitoring()
+        if self.checker.mode == SecurityMode.LEARN:
+            return []
+
+        print("[CHECK] Checking CloudWatch log retention for Bedrock invocations...")
+
+        try:
+            logging_config = self.checker.bedrock.get_model_invocation_logging_configuration()
+            cloudwatch_config = logging_config.get('loggingConfig', {}).get('cloudWatchConfig', {})
+            log_group_name = cloudwatch_config.get('logGroupName')
+
+            if not log_group_name:
+                return self.checker.findings
+
+            log_groups = self.checker.cloudwatch.describe_log_groups(
+                logGroupNamePrefix=log_group_name
+            ).get('logGroups', [])
+
+            for log_group in log_groups:
+                if log_group.get('logGroupName') != log_group_name:
+                    continue
+
+                retention_days = log_group.get('retentionInDays')
+                if retention_days is not None and retention_days < self.checker.config.log_retention_days:
+                    self.checker.add_finding(
+                        risk_level=RiskLevel.MEDIUM,
+                        category="Audit & Compliance",
+                        resource=f"CloudWatch Log Group: {log_group_name}",
+                        issue="Bedrock invocation logs have insufficient retention",
+                        recommendation=f"Set retention to at least {self.checker.config.log_retention_days} days",
+                        fix_command=(
+                            f"aws logs put-retention-policy --log-group-name {log_group_name} "
+                            f"--retention-in-days {self.checker.config.log_retention_days}"
+                        ),
+                        technical_details=f"Current retention is {retention_days} days"
+                    )
+
+        except ClientError as e:
+            handle_aws_error(e, "checking log retention")
+
+        return self.checker.findings
 
     def check_log_encryption(self) -> List[Dict]:
         """Check log encryption settings."""
-        return self.check_logging_monitoring()
+        if self.checker.mode == SecurityMode.LEARN:
+            return []
+
+        print("[CHECK] Checking Bedrock log encryption...")
+
+        try:
+            logging_config = self.checker.bedrock.get_model_invocation_logging_configuration()
+            config = logging_config.get('loggingConfig', {})
+
+            cloudwatch_config = config.get('cloudWatchConfig', {})
+            log_group_name = cloudwatch_config.get('logGroupName')
+            if log_group_name:
+                log_groups = self.checker.cloudwatch.describe_log_groups(
+                    logGroupNamePrefix=log_group_name
+                ).get('logGroups', [])
+                for log_group in log_groups:
+                    if log_group.get('logGroupName') == log_group_name and not log_group.get('kmsKeyId'):
+                        self.checker.add_finding(
+                            risk_level=RiskLevel.HIGH,
+                            category="Audit & Compliance",
+                            resource=f"CloudWatch Log Group: {log_group_name}",
+                            issue="Bedrock CloudWatch logs are not encrypted with a customer-managed KMS key",
+                            recommendation="Associate a customer-managed KMS key with the log group",
+                            technical_details="CloudWatch log group has no kmsKeyId"
+                        )
+
+            s3_config = config.get('s3Config', {})
+            bucket_name = s3_config.get('bucketName')
+            if bucket_name:
+                try:
+                    self.checker.s3.get_bucket_encryption(Bucket=bucket_name)
+                except Exception:
+                    self.checker.add_finding(
+                        risk_level=RiskLevel.HIGH,
+                        category="Audit & Compliance",
+                        resource=f"S3 Bucket: {bucket_name}",
+                        issue="Bedrock S3 log bucket is not encrypted",
+                        recommendation="Enable default bucket encryption with a customer-managed KMS key",
+                        technical_details="S3 GetBucketEncryption did not return encryption configuration"
+                    )
+
+        except ClientError as e:
+            handle_aws_error(e, "checking log encryption")
+
+        return self.checker.findings

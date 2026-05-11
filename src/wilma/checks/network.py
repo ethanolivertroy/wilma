@@ -54,8 +54,9 @@ class NetworkSecurityChecks:
                 endpoint_id = endpoint.get('VpcEndpointId', '')
                 state = endpoint.get('State', '')
 
-                # Only consider available endpoints
-                if state != 'available':
+                # Ignore deleted/failed endpoints, but include pending endpoints for local tests
+                # and newly-created resources that still need configuration validation.
+                if state in ['deleted', 'failed', 'deleting']:
                     continue
 
                 # Categorize Bedrock endpoints
@@ -94,10 +95,10 @@ class NetworkSecurityChecks:
 
                     if not private_dns:
                         self.checker.add_finding(
-                            risk_level=RiskLevel.LOW,
+                            risk_level=RiskLevel.MEDIUM,
                             category="Network Security",
                             resource=f"VPC Endpoint: {endpoint_id}",
-                            issue="bedrock-runtime VPC endpoint has PrivateDns disabled",
+                            issue="bedrock-runtime VPC endpoint has private DNS disabled",
                             recommendation="Enable PrivateDnsEnabled to ensure traffic routes correctly",
                             fix_command=f"aws ec2 modify-vpc-endpoint --vpc-endpoint-id {endpoint_id} --private-dns-enabled",
                             learn_more="Without Private DNS, applications may still route to public endpoints",
@@ -136,10 +137,10 @@ class NetworkSecurityChecks:
 
                     if not private_dns:
                         self.checker.add_finding(
-                            risk_level=RiskLevel.LOW,
+                            risk_level=RiskLevel.MEDIUM,
                             category="Network Security",
                             resource=f"VPC Endpoint: {endpoint_id}",
-                            issue="bedrock-agent VPC endpoint has PrivateDns disabled",
+                            issue="bedrock-agent VPC endpoint has private DNS disabled",
                             recommendation="Enable PrivateDnsEnabled to ensure traffic routes correctly",
                             fix_command=f"aws ec2 modify-vpc-endpoint --vpc-endpoint-id {endpoint_id} --private-dns-enabled",
                             learn_more="Without Private DNS, Knowledge Base traffic may bypass the VPC endpoint",
@@ -160,4 +161,52 @@ class NetworkSecurityChecks:
 
     def check_security_groups(self) -> List[Dict]:
         """Check security group configurations."""
-        return self.check_vpc_endpoints()
+        if self.checker.mode == SecurityMode.LEARN:
+            return []
+
+        print("[CHECK] Checking VPC endpoint security groups...")
+
+        try:
+            endpoints = self.checker.ec2.describe_vpc_endpoints().get('VpcEndpoints', [])
+            security_group_ids = set()
+
+            for endpoint in endpoints:
+                service_name = endpoint.get('ServiceName', '')
+                if 'bedrock' not in service_name:
+                    continue
+                for group in endpoint.get('Groups', []):
+                    group_id = group.get('GroupId')
+                    if group_id:
+                        security_group_ids.add(group_id)
+
+            if not security_group_ids:
+                return self.checker.findings
+
+            security_groups = self.checker.ec2.describe_security_groups(
+                GroupIds=list(security_group_ids)
+            ).get('SecurityGroups', [])
+
+            for security_group in security_groups:
+                group_id = security_group.get('GroupId')
+                group_name = security_group.get('GroupName', group_id)
+
+                for permission in security_group.get('IpPermissions', []):
+                    ip_protocol = permission.get('IpProtocol')
+                    ip_ranges = permission.get('IpRanges', [])
+
+                    for ip_range in ip_ranges:
+                        cidr = ip_range.get('CidrIp')
+                        if cidr == '0.0.0.0/0' and ip_protocol == '-1':
+                            self.checker.add_finding(
+                                risk_level=RiskLevel.HIGH,
+                                category="Network Security",
+                                resource=f"Security Group: {group_name} ({group_id})",
+                                issue="Bedrock VPC endpoint security group allows unrestricted inbound traffic",
+                                recommendation="Restrict inbound access to required VPC CIDRs and ports only",
+                                technical_details="Security group allows all protocols from 0.0.0.0/0"
+                            )
+
+        except ClientError as e:
+            handle_aws_error(e, "checking VPC endpoint security groups")
+
+        return self.checker.findings

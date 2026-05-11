@@ -9,7 +9,6 @@ Copyright (C) 2025  Ethan Troy
 Licensed under GPL v3
 """
 
-import pytest
 from unittest.mock import MagicMock
 
 from tests.conftest import setup_agent_mock
@@ -128,7 +127,7 @@ class TestAgentActionConfirmation:
         }
 
         # Mock action groups for each agent
-        def list_action_groups_side_effect(agentId, **kwargs):
+        def list_action_groups_side_effect(agentId, **kwargs):  # noqa: N803
             if agentId == 'agent-safe':
                 return {
                     'actionGroupSummaries': [{
@@ -150,7 +149,7 @@ class TestAgentActionConfirmation:
         mock_checker.bedrock_agent.list_agent_action_groups.side_effect = list_action_groups_side_effect
 
         # Mock action group details
-        def get_action_group_side_effect(agentId, actionGroupId, **kwargs):
+        def get_action_group_side_effect(agentId, actionGroupId, **kwargs):  # noqa: N803
             if actionGroupId == 'ag-safe':
                 return {
                     'agentActionGroup': {
@@ -1010,7 +1009,7 @@ class TestAgentLambdaPermissions:
         }
 
         # Mock both agents to use the same Lambda
-        def get_agent_side_effect(agentId):
+        def get_agent_side_effect(agentId):  # noqa: N803
             return {
                 'agent': {
                     'agentId': agentId,
@@ -1019,7 +1018,7 @@ class TestAgentLambdaPermissions:
                 }
             }
 
-        def list_action_groups_side_effect(agentId, agentVersion, maxResults):
+        def list_action_groups_side_effect(agentId, agentVersion, maxResults):  # noqa: N803
             return {
                 'actionGroupSummaries': [{
                     'actionGroupId': f'ag-{agentId}',
@@ -1028,7 +1027,7 @@ class TestAgentLambdaPermissions:
                 }]
             }
 
-        def get_action_group_side_effect(agentId, actionGroupId, agentVersion):
+        def get_action_group_side_effect(agentId, actionGroupId, agentVersion):  # noqa: N803
             return {
                 'agentActionGroup': {
                     'actionGroupId': actionGroupId,
@@ -1066,7 +1065,7 @@ class TestAgentLambdaPermissions:
         })
         agent_checks.lambda_client.get_function_configuration = get_config_mock
 
-        findings = agent_checks.check_agent_lambda_permissions()
+        agent_checks.check_agent_lambda_permissions()
 
         # Should only call get_policy once despite two agents using the same Lambda
         assert get_policy_mock.call_count == 1

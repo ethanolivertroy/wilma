@@ -302,9 +302,9 @@ def check_s3_bucket_encryption(s3_client, bucket_name: str) -> Dict[str, Any]:
         error_code = e.response.get('Error', {}).get('Code', '')
         if error_code not in ['ServerSideEncryptionConfigurationNotFoundError', 'NoSuchBucket']:
             raise
-    except Exception:
+    except Exception as e:
         # Catch any other exceptions (like missing exception classes in moto)
-        pass
+        result['error'] = str(e)
 
     return result
 

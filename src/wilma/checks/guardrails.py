@@ -110,9 +110,9 @@ class GuardrailSecurityChecks:
                                 'location': f'Guardrail: {guardrail_name} (v{guardrail_version})',
                                 'resource': f'arn:aws:bedrock:*:*:guardrail/{guardrail_id}',
                                 'remediation': (
-                                    f'Update guardrail filter strength to HIGH:\n'
+                                    f'Update guardrail filter strength to HIGH:\n'  # noqa: S608  # nosec B608
                                     f'1. Navigate to AWS Bedrock console\n'
-                                    f'2. Select Guardrails → "{guardrail_name}"\n'
+                                    f'2. Open Guardrails → "{guardrail_name}"\n'
                                     f'3. Edit Content filters\n'
                                     f'4. Set {filter_type} input strength to HIGH\n'
                                     f'5. Create new version and mark as PRODUCTION'
@@ -140,7 +140,7 @@ class GuardrailSecurityChecks:
                                 'location': f'Guardrail: {guardrail_name} (v{guardrail_version})',
                                 'resource': f'arn:aws:bedrock:*:*:guardrail/{guardrail_id}',
                                 'remediation': (
-                                    f'Update guardrail output filter strength to HIGH for maximum protection'
+                                    'Update guardrail output filter strength to HIGH for maximum protection'
                                 ),
                                 'details': {
                                     'guardrail_id': guardrail_id,
@@ -439,8 +439,6 @@ class GuardrailSecurityChecks:
                     else:
                         # Check configured PII types
                         pii_entities = pii_policy.get('piiEntitiesConfig', [])
-                        regex_filters = pii_policy.get('regexesConfig', [])
-
                         configured_types = {entity.get('type') for entity in pii_entities}
                         missing_pii = critical_pii_types - configured_types
 
@@ -706,14 +704,7 @@ class GuardrailSecurityChecks:
         findings = []
 
         try:
-            # Get all guardrail IDs for cross-reference
-            guardrails = list(paginate_aws_results(
-                self.bedrock.list_guardrails,
-                result_key='guardrails'
-            ))
-            guardrail_ids = {g['id'] for g in guardrails}
-
-            print(f"[CHECK] Analyzing Bedrock resources for guardrail coverage...")
+            print("[CHECK] Analyzing Bedrock resources for guardrail coverage...")
 
             # Check Bedrock Agents
             try:
@@ -783,14 +774,8 @@ class GuardrailSecurityChecks:
 
                 print(f"[CHECK] Found {len(knowledge_bases)} knowledge bases, checking guardrail associations...")
 
-                for kb in knowledge_bases:
-                    kb_id = kb.get('knowledgeBaseId')
-                    kb_name = kb.get('name', kb_id)
-
-                    # Note: Knowledge bases don't directly have guardrails attached
-                    # They're protected when used with agents or via model invocations
-                    # This is informational rather than critical
-                    # We skip flagging KBs without guardrails as they require agent/invocation context
+                # Knowledge bases do not directly attach guardrails. They are protected
+                # through agents or model invocation context, so this remains informational.
 
             except Exception as e:
                 print(f"[WARN] Could not list knowledge bases: {str(e)}")

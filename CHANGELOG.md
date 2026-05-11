@@ -3,6 +3,19 @@
 ## [Unreleased]
 
 ### Added
+- **0.2.0 beta reboot foundation**
+  - Repositioned Wilma as an AWS Bedrock Security Posture Assessment tool
+  - Added Bedrock Security Indicators as the top-level scorecard
+  - Added Bedrock Security Posture Score and Assessment Confidence
+  - Added versioned JSON assessment schema (`schema_version: 2.0`)
+  - Added framework mappings for OWASP LLM Top 10, NIST AI RMF, NIST 800-53, AWS guidance, and AIUC-1
+  - Added report-only manual evidence checklist for organizational/audit evidence
+  - Added `--explain` as the auditor-oriented explanation mode
+  - Kept `--learn` as a compatibility alias for `--explain`
+  - Added local terminal-only `--yabba-dabba-doo` presentation mode
+  - Added `--version` CLI output for the rebooted beta version
+  - Fixed central aggregation for rich findings returned by Agents, Guardrails, Knowledge Bases, and Fine-Tuning modules
+
 - **AWS Bedrock Agents Security Module** 🎉 - COMPLETE (10 of 10 checks)
   - Action confirmation validation (OWASP LLM08: Excessive Agency)
   - Guardrail configuration enforcement (OWASP LLM01: Prompt Injection)
@@ -53,7 +66,7 @@
   - Addresses OWASP LLM01 (Indirect Prompt Injection), LLM03 (Supply Chain), LLM06 (Sensitive Info), LLM07 (Vector Weaknesses)
   - MITRE ATLAS: AML.T0020 (Poison Training Data), ML Supply Chain Compromise
   - Compliance: HIPAA, PCI-DSS, SOC 2, ISO 27001, GDPR Art. 32
-  - 2,237 lines of code, 25 test cases (80% passing)
+  - 2,237 lines of code, 25 test cases passing
   - Fully integrated and operational
 
 - **AWS Bedrock Fine-Tuning Security Module** 🎉 - COMPLETE (11 of 11 checks) ✨ **PRIORITY 1 NOW 100% COMPLETE**
@@ -85,14 +98,36 @@
 ### Changed
 - **Dependency Management Cleanup**:
   - Removed `requirements.txt` (use `pyproject.toml` as single source of truth)
-  - Added deprecation notice to `setup.py` (kept for legacy compatibility)
+  - Reduced `setup.py` to a legacy shim; `pyproject.toml` is the metadata source of truth
   - Added version upper bounds to all dependencies for SemVer compatibility
-  - Fixed version triple-mismatch: unified to 1.2.0 across `__init__.py`, `setup.py`, and `pyproject.toml`
+  - Reset project version metadata to `0.2.0` for the beta reboot
 
 ### Removed
 - Python 3.8 support from CI/CD workflows
 - Python 3.8 classifiers from package metadata
 - `requirements.txt` file (unused dependencies: colorama, tabulate, opensearch-py, requests-aws4auth)
+
+## [0.2.0] - 2026-05-11
+
+### Added
+- Beta reboot as an AWS Bedrock Security Posture Assessment tool
+- Bedrock Security Indicators scorecard
+- Bedrock Security Posture Score and Assessment Confidence
+- Versioned JSON assessment schema (`schema_version: 2.0`)
+- Framework mappings for OWASP LLM Top 10, NIST AI RMF, NIST 800-53, AWS guidance, and AIUC-1
+- Manual evidence checklist for organizational audit artifacts
+- `--explain` mode, with `--learn` kept as a compatibility alias
+- Local terminal-only `--yabba-dabba-doo` presentation mode
+- `--version` CLI output
+
+### Fixed
+- Rich findings returned by Agents, Guardrails, Knowledge Bases, and Fine-Tuning now flow into the main report
+- GitHub Actions pytest continuation bug in test and publish workflows
+
+### Changed
+- Project metadata reset to `0.2.0` beta
+- `setup.py` reduced to a legacy shim with `pyproject.toml` as the metadata source of truth
+- README, roadmap, and agent guidance now describe the rebooted posture assessment direction
 
 ## [1.2.0] - 2025-12-27
 

@@ -1,8 +1,8 @@
 """
-Wilma - AWS Bedrock Security Configuration Checker
+Wilma - AWS Bedrock Security Posture Assessment
 
-A comprehensive security auditing tool for AWS Bedrock that combines traditional
-cloud security best practices with cutting-edge GenAI security capabilities.
+An AWS Bedrock security posture assessment tool that maps automated evidence to
+Bedrock Security Indicators and external security frameworks.
 
 Copyright (C) 2024  Ethan Troy
 
@@ -12,11 +12,11 @@ the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
 """
 
-__version__ = "1.2.0"
+__version__ = "0.2.0"
 __author__ = "Ethan Troy"
-__license__ = "GPL-3.0"
+__license__ = "GPL-3.0-or-later"
 
 from wilma.checker import BedrockSecurityChecker
 from wilma.enums import RiskLevel, SecurityMode
 
-__all__ = ["BedrockSecurityChecker", "SecurityMode", "RiskLevel"]
+__all__ = ["BedrockSecurityChecker", "SecurityMode", "RiskLevel", "__version__"]

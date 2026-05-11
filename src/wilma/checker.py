@@ -1,5 +1,5 @@
 """
-Wilma - AWS Bedrock Security Checker
+Wilma - AWS Bedrock Security Posture Assessment
 Main orchestration class that coordinates all security checks
 
 Architecture:
@@ -12,11 +12,11 @@ Licensed under GPL v3
 """
 
 import sys
-from datetime import datetime
-from typing import Dict, List
+from datetime import datetime, timezone
 
 import boto3
 
+from wilma.assessment import risk_level_label
 from wilma.checks import (
     AgentSecurityChecks,
     FineTuningSecurityChecks,
@@ -34,7 +34,7 @@ from wilma.enums import RiskLevel, SecurityMode
 
 class BedrockSecurityChecker:
     """
-    AWS Bedrock Security Checker - Main Orchestrator
+    AWS Bedrock Security Posture Assessment - Main Orchestrator
 
     Coordinates security checks across:
     - Agents Security (10 comprehensive checks) - OWASP LLM08, LLM01
@@ -47,9 +47,49 @@ class BedrockSecurityChecker:
     Each check module inherits this checker instance for AWS client access.
     """
 
+    CHECK_INDICATORS = {
+        "agents": {
+            "identity_access_agency",
+            "data_protection_privacy",
+            "ai_safety_guardrails",
+            "rag_model_integrity",
+            "monitoring_logging_detection",
+        },
+        "guardrails": {
+            "governance_inventory",
+            "data_protection_privacy",
+            "ai_safety_guardrails",
+        },
+        "knowledge_bases": {
+            "governance_inventory",
+            "identity_access_agency",
+            "data_protection_privacy",
+            "rag_model_integrity",
+            "monitoring_logging_detection",
+        },
+        "fine_tuning": {
+            "governance_inventory",
+            "identity_access_agency",
+            "data_protection_privacy",
+            "rag_model_integrity",
+            "monitoring_logging_detection",
+            "network_runtime_isolation",
+        },
+        "iam": {"identity_access_agency"},
+        "logging": {"monitoring_logging_detection"},
+        "network": {"network_runtime_isolation"},
+        "tagging": {"governance_inventory"},
+        "genai": {
+            "ai_safety_guardrails",
+            "data_protection_privacy",
+            "resilience_consumption_controls",
+        },
+    }
+
     def __init__(self, profile_name: str = None, region: str = None,
                  mode: SecurityMode = SecurityMode.STANDARD,
-                 config: WilmaConfig = None):
+                 config: WilmaConfig = None,
+                 presentation_mode: str = "standard"):
         """
         Initialize checker with AWS credentials and check modules.
 
@@ -63,6 +103,7 @@ class BedrockSecurityChecker:
         """
         self.mode = mode
         self.config = config if config is not None else WilmaConfig()
+        self.presentation_mode = presentation_mode
 
         session_params = {}
         if profile_name:
@@ -95,6 +136,7 @@ class BedrockSecurityChecker:
         self.findings = []
         self.good_practices = []
         self.available_models = []
+        self.assessed_indicators = set()
 
         # Initialize specialized check modules (each receives this checker instance)
         self.agent_checks = AgentSecurityChecks(self)
@@ -136,7 +178,7 @@ class BedrockSecurityChecker:
             'resource': resource,
             'issue': issue,
             'recommendation': recommendation,
-            'timestamp': datetime.utcnow().isoformat()
+            'timestamp': datetime.now(timezone.utc).isoformat()
         }
 
         if fix_command:
@@ -162,6 +204,9 @@ class BedrockSecurityChecker:
 
     def _print_banner(self):
         """Display ASCII art banner with branding."""
+        if self.presentation_mode == "yabba_dabba_doo":
+            print("Yabba Dabba Doo! Wilma is rolling over the Bedrock...")
+
         banner = """
     ██╗    ██╗██╗██╗     ███╗   ███╗ █████╗
     ██║    ██║██║██║     ████╗ ████║██╔══██╗
@@ -171,10 +216,35 @@ class BedrockSecurityChecker:
      ╚══╝╚══╝ ╚═╝╚══════╝╚═╝     ╚═╝╚═╝  ╚═╝
         """
         print(banner)
-        print("    ~*~ Bedrock Security Check ~*~")
+        print("    ~*~ Bedrock Security Posture Assessment ~*~")
         print()
 
-    def run_all_checks(self) -> List[Dict]:
+    def _finding_key(self, finding: dict) -> tuple:
+        """Build a stable key for deduplicating legacy and rich findings."""
+        return (
+            risk_level_label(finding.get('risk_level')),
+            finding.get('title') or finding.get('issue') or '',
+            finding.get('resource') or finding.get('location') or '',
+        )
+
+    def _merge_module_findings(self, findings: list[dict]) -> None:
+        """Merge findings returned by newer modules into the central report list."""
+        existing = {self._finding_key(finding) for finding in self.findings}
+        for finding in findings:
+            key = self._finding_key(finding)
+            if key not in existing:
+                self.findings.append(finding)
+                existing.add(key)
+
+    def _mark_assessed(self, check_name: str) -> None:
+        """Record which Bedrock Security Indicators had automated coverage."""
+        self.assessed_indicators.update(self.CHECK_INDICATORS.get(check_name, set()))
+
+    def _should_run_check(self, check_name: str) -> bool:
+        """Return whether a configured check module should run."""
+        return check_name in self.config.enabled_checks
+
+    def run_all_checks(self) -> list[dict]:
         """
         Execute all security checks in order.
 
@@ -193,38 +263,56 @@ class BedrockSecurityChecker:
             List of finding dictionaries with risk levels and remediation steps
         """
         self._print_banner()
-        print(f"[START] Running {self.mode.value} mode security check...")
+        print(f"[START] Running {self.mode.value} mode Bedrock posture assessment...")
         print("Let me take a look at your Bedrock security configuration...")
         print(f"Account: {self.account_id} | Region: {self.region}")
         print("=" * 60)
 
         # Critical: Autonomous AI agents (OWASP LLM08: Excessive Agency)
-        self.agent_checks.run_all_checks()
+        if self._should_run_check("agents"):
+            self._merge_module_findings(self.agent_checks.run_all_checks())
+            self._mark_assessed("agents")
 
         # Critical: Content filtering and hallucination prevention
-        self.guardrail_checks.run_all_checks()
+        if self._should_run_check("guardrails"):
+            self._merge_module_findings(self.guardrail_checks.run_all_checks())
+            self._mark_assessed("guardrails")
 
         # Critical: RAG-specific security (data poisoning, PII, prompt injection)
-        self.kb_checks.run_all_checks()
+        if self._should_run_check("knowledge_bases"):
+            self._merge_module_findings(self.kb_checks.run_all_checks())
+            self._mark_assessed("knowledge_bases")
 
         # Critical: Model fine-tuning security (training data protection, OWASP LLM03, LLM04, LLM06)
-        self.fine_tuning_checks.run_all_checks()
+        if self._should_run_check("fine_tuning"):
+            self._merge_module_findings(self.fine_tuning_checks.run_all_checks())
+            self._mark_assessed("fine_tuning")
 
         # Foundation: Identity and access control
-        self.iam_checks.check_model_access_audit()
+        if self._should_run_check("iam"):
+            self.iam_checks.check_model_access_audit()
+            self._mark_assessed("iam")
 
         # Visibility: Logging and monitoring
-        self.logging_checks.check_logging_monitoring()
+        if self._should_run_check("logging"):
+            self.logging_checks.check_logging_monitoring()
+            self._mark_assessed("logging")
 
         # Network: Private connectivity
-        self.network_checks.check_vpc_endpoints()
+        if self._should_run_check("network"):
+            self.network_checks.check_vpc_endpoints()
+            self._mark_assessed("network")
 
         # Organization: Resource management
-        self.tagging_checks.check_resource_tagging()
+        if self._should_run_check("tagging"):
+            self.tagging_checks.check_resource_tagging()
+            self._mark_assessed("tagging")
 
         # GenAI threats: OWASP LLM Top 10
-        self.genai_checks.check_prompt_injection_vulnerabilities()
-        self.genai_checks.check_data_privacy_compliance()
-        self.genai_checks.check_cost_anomaly_detection()
+        if self._should_run_check("genai"):
+            self.genai_checks.check_prompt_injection_vulnerabilities()
+            self.genai_checks.check_data_privacy_compliance()
+            self.genai_checks.check_cost_anomaly_detection()
+            self._mark_assessed("genai")
 
         return self.findings

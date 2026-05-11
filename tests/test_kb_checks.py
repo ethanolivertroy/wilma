@@ -636,6 +636,7 @@ class TestKBPublicAccess:
         correctly in production AWS but can't be fully tested with Moto.
         """
         from unittest.mock import patch
+
         from botocore.exceptions import ClientError
 
         # Create S3 bucket WITHOUT Block Public Access (Moto default)
@@ -660,9 +661,6 @@ class TestKBPublicAccess:
                 }
             }
         }
-
-        # Mock S3 client to raise the exception that would be caught properly
-        original_get = mock_checker.s3.get_public_access_block
 
         def mock_get_public_access_block(**kwargs):
             # Raise NoSuchPublicAccessBlockConfiguration as a proper exception

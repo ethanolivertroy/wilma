@@ -1,9 +1,47 @@
 # Wilma Security Feature Roadmap
 
-This document tracks potential security features and enhancements for Wilma based on comprehensive research into AWS Bedrock capabilities, OWASP LLM Top 10 2025, MITRE ATLAS framework, and real-world security patterns.
+This document tracks Wilma's reboot as an AWS Bedrock Security Posture Assessment tool. The historical 1.x public package line is treated as legacy pre-reboot history; the active beta line starts at `0.2.x`.
 
-**Last Updated:** 2025-11-05
-**Version:** 1.1.0 (Current Release - Published to PyPI as `wilma-sec`)
+**Last Updated:** 2026-05-11
+**Version:** 0.2.0 beta reboot
+
+---
+
+## 0.2.0 Reboot Foundation
+
+**Goal:** make Wilma answer "Are you using AWS Bedrock securely?" with an auditor-friendly posture assessment.
+
+- [x] Rename public positioning to AWS Bedrock Security Posture Assessment
+- [x] Reset project metadata to `0.2.0` beta
+- [x] Introduce Bedrock Security Indicators as the top-level scorecard
+- [x] Add Bedrock Security Posture Score
+- [x] Add Assessment Confidence and blind spot reporting
+- [x] Add versioned JSON assessment schema
+- [x] Add framework mapping layer for OWASP LLM Top 10, NIST AI RMF, NIST 800-53, AWS guidance, and AIUC-1
+- [x] Add report-only manual evidence checklist for organizational evidence
+- [x] Add `--explain` as the auditor-oriented explanation mode
+- [x] Keep `--learn` as a compatibility alias
+- [x] Add local terminal-only `--yabba-dabba-doo` presentation mode
+- [x] Fix aggregation so Agents, Guardrails, Knowledge Bases, and Fine-Tuning findings reach the main report
+
+## 0.3.x Planned Focus
+
+- [ ] Replace inferred framework mappings with explicit per-check mappings
+- [ ] Emit standardized pass, fail, warning, not applicable, and insufficient evidence results from every check
+- [ ] Add first-class insufficient-evidence findings for missing IAM permissions and inaccessible APIs
+- [ ] Add evidence IDs and stable check IDs for audit traceability
+- [ ] Add `--evidence-file` support for optional manual evidence tracking
+- [ ] Add HTML report export once the schema stabilizes
+- [ ] Add SARIF export for GitHub Security and security tooling ingestion
+
+## 1.0.0 Stabilization Criteria
+
+- [ ] Stable assessment schema with migration notes
+- [ ] Explicit mappings for every automated check
+- [ ] Full pass/fail/unknown coverage for Bedrock Security Indicators
+- [ ] Clear AWS permission policy for high-confidence assessments
+- [ ] Test coverage for scoring, confidence, framework mappings, and representative AWS evidence flows
+- [ ] PyPI release hygiene completed for legacy 1.x packages
 
 ---
 
@@ -22,7 +60,7 @@ This document tracks potential security features and enhancements for Wilma base
   - IAM role permission validation
   - CloudWatch logging validation
   - Chunking configuration, tagging compliance, embedding model access
-  - Test Status: 20 of 25 tests passing (5 tests have mock setup issues, tracked separately)
+  - Test Status: 25 of 25 tests passing
 - ✅ **Agents Security** - 100% COMPLETE (10 of 10 security checks)
   - 1,838 lines of production code, 36 tests (100% passing)
   - Action confirmation, guardrails, service roles, Lambda security
@@ -165,7 +203,7 @@ This document tracks potential security features and enhancements for Wilma base
 **Effort:** Completed in earlier versions
 **OWASP:** LLM03 (Supply Chain), LLM06 (Sensitive Info Disclosure), LLM07 (Vector/Embedding Weaknesses)
 **MITRE ATLAS:** AML.T0020 (Poison Training Data), ML Supply Chain Compromise
-**Test Status:** 20 of 25 tests passing (80% pass rate, 5 mock setup issues tracked)
+**Test Status:** 25 of 25 tests passing
 
 #### Implemented Security Checks:
 
@@ -263,7 +301,7 @@ This document tracks potential security features and enhancements for Wilma base
 **Module Statistics:**
 - 📝 2,237 lines of production code
 - ✅ 12 comprehensive security checks
-- 🧪 25 test cases (20 passing, 5 have mock setup issues)
+- 🧪 25 test cases passing
 - 🎯 OWASP LLM03, LLM06, LLM07 fully addressed
 - 🔒 Addresses RAG data poisoning and sensitive information disclosure
 

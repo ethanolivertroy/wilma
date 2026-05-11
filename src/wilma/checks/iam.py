@@ -230,10 +230,71 @@ class IAMSecurityChecks:
 
     def check_cross_account_access(self) -> List[Dict]:
         """Check for cross-account access in IAM policies."""
-        # For now, delegate to the main model access audit
-        return self.check_model_access_audit()
+        if self.checker.mode == SecurityMode.LEARN:
+            return []
+
+        print("[CHECK] Checking IAM roles for cross-account access...")
+
+        try:
+            for role in paginate_iam_results(self.checker.iam.list_roles, 'Roles', MaxItems=100):
+                role_name = role['RoleName']
+                trust_policy = role.get('AssumeRolePolicyDocument', {})
+                statements = trust_policy.get('Statement', [])
+                if isinstance(statements, dict):
+                    statements = [statements]
+
+                for statement in statements:
+                    principal = statement.get('Principal', {})
+                    aws_principals = principal.get('AWS', []) if isinstance(principal, dict) else []
+                    if isinstance(aws_principals, str):
+                        aws_principals = [aws_principals]
+
+                    for principal_arn in aws_principals:
+                        if principal_arn == '*':
+                            external_account = '*'
+                        elif ':iam::' in principal_arn:
+                            external_account = principal_arn.split(':iam::', 1)[1].split(':', 1)[0]
+                        else:
+                            continue
+
+                        if external_account != self.checker.account_id:
+                            self.checker.add_finding(
+                                risk_level=RiskLevel.MEDIUM,
+                                category="Access Control",
+                                resource=f"IAM Role: {role_name}",
+                                issue="Role trust policy allows cross-account access",
+                                recommendation="Review and restrict the trust policy to approved accounts only",
+                                technical_details=f"External principal: {principal_arn}"
+                            )
+
+        except ClientError as e:
+            handle_aws_error(e, "checking cross-account IAM access")
+
+        return self.checker.findings
 
     def check_role_session_duration(self) -> List[Dict]:
         """Check for excessive role session durations."""
-        # For now, delegate to the main model access audit  
-        return self.check_model_access_audit()
+        if self.checker.mode == SecurityMode.LEARN:
+            return []
+
+        print("[CHECK] Checking IAM role session durations...")
+
+        try:
+            for role in paginate_iam_results(self.checker.iam.list_roles, 'Roles', MaxItems=100):
+                role_name = role['RoleName']
+                max_session_duration = role.get('MaxSessionDuration', 3600)
+
+                if max_session_duration > 3600:
+                    self.checker.add_finding(
+                        risk_level=RiskLevel.MEDIUM,
+                        category="Access Control",
+                        resource=f"IAM Role: {role_name}",
+                        issue="Role allows excessive session duration",
+                        recommendation="Reduce MaxSessionDuration to 1 hour unless a longer session is explicitly required",
+                        technical_details=f"MaxSessionDuration is {max_session_duration} seconds"
+                    )
+
+        except ClientError as e:
+            handle_aws_error(e, "checking IAM role session duration")
+
+        return self.checker.findings

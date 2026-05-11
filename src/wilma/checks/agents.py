@@ -358,8 +358,8 @@ class AgentSecurityChecks:
                                 'location': f'Agent: {agent_name}',
                                 'resource': f'bedrock-agent:agent/{agent_id}',
                                 'remediation': (
-                                    f'Either create the missing guardrail or update the agent to reference '
-                                    f'an existing guardrail.'
+                                    'Either create the missing guardrail or update the agent to reference '
+                                    'an existing guardrail.'
                                 ),
                                 'details': {
                                     'agent_id': agent_id,
@@ -769,8 +769,8 @@ class AgentSecurityChecks:
                         'location': f'Agent: {agent_name}, Action Group: {action_group_name}',
                         'resource': lambda_arn,
                         'remediation': (
-                            f'Either create the missing Lambda function or update the action group '
-                            f'to reference an existing function.'
+                            'Either create the missing Lambda function or update the action group '
+                            'to reference an existing function.'
                         ),
                         'details': {
                             'agent_id': agent_id,
@@ -1632,11 +1632,11 @@ class AgentSecurityChecks:
                             'location': f'Agent: {agent_name}',
                             'resource': f'bedrock-agent:agent/{agent_id}',
                             'remediation': (
-                                f'Enhance instructions with security guidance:\n'
-                                f'- Define explicit scope ("You are ONLY authorized to...")\n'
-                                f'- Specify validation requirements ("Verify all inputs...")\n'
-                                f'- Set behavioral boundaries ("Never execute code...")\n'
-                                f'- Establish rejection criteria ("Reject requests that...")'
+                                'Enhance instructions with security guidance:\n'
+                                '- Define explicit scope ("You are ONLY authorized to...")\n'
+                                '- Specify validation requirements ("Verify all inputs...")\n'
+                                '- Set behavioral boundaries ("Never execute code...")\n'
+                                '- Establish rejection criteria ("Reject requests that...")'
                             ),
                             'details': {
                                 'agent_id': agent_id,

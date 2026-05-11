@@ -98,12 +98,12 @@ class TestAWSManagedPolicies:
                 'Resource': '*'
             }]
         }
-        
+
         admin_policy = mock_checker.iam.create_policy(
             PolicyName='AdministratorAccess',
             PolicyDocument=json.dumps(admin_policy_doc)
         )
-        
+
         mock_checker.iam.attach_role_policy(
             RoleName='BedrockExecutionRole',
             PolicyArn=admin_policy['Policy']['Arn']
@@ -152,12 +152,12 @@ class TestAWSManagedPolicies:
                 'Resource': '*'
             }]
         }
-        
+
         power_user_policy = mock_checker.iam.create_policy(
             PolicyName='PowerUserAccess',
             PolicyDocument=json.dumps(power_user_policy_doc)
         )
-        
+
         mock_checker.iam.attach_role_policy(
             RoleName='BedrockRole',
             PolicyArn=power_user_policy['Policy']['Arn']

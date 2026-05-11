@@ -1,531 +1,202 @@
-# Wilma - AWS Bedrock Security Configuration Checker
+# Wilma - AWS Bedrock Security Posture Assessment
+
 [![PyPI version](https://badge.fury.io/py/wilma-sec.svg)](https://pypi.org/project/wilma-sec/)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![Security Audit](https://img.shields.io/badge/Security-Audit%20Tool-red)](https://github.com/ethanolivertroy/wilma)
 [![OWASP](https://img.shields.io/badge/OWASP-LLM%20Top%2010-darkblue)](https://owasp.org/www-project-top-10-for-large-language-model-applications/)
-[![AWS](https://img.shields.io/badge/AWS-Security%20Best%20Practices-orange)](https://aws.amazon.com/security/)
+[![AWS](https://img.shields.io/badge/AWS-Bedrock%20Security-orange)](https://aws.amazon.com/bedrock/)
 [![Tests](https://github.com/ethanolivertroy/wilma/actions/workflows/test.yml/badge.svg)](https://github.com/ethanolivertroy/wilma/actions/workflows/test.yml)
 [![Publish](https://github.com/ethanolivertroy/wilma/actions/workflows/publish.yml/badge.svg)](https://github.com/ethanolivertroy/wilma/actions/workflows/publish.yml)
 [![OSSF Scorecard](https://api.scorecard.dev/projects/github.com/ethanolivertroy/wilma/badge)](https://scorecard.dev/viewer/?uri=github.com/ethanolivertroy/wilma)
 
 ![Wilma Logo](wilma-logo.jpg)
 
+Wilma evaluates the security posture of an AWS Bedrock deployment and answers the practical audit question:
 
-## Enhanced with GenAI-Specific Security Features
+> Are you using AWS Bedrock securely?
 
-A comprehensive security auditing tool for AWS Bedrock that combines traditional cloud security best practices with cutting-edge GenAI security capabilities. Perfect for organizations adopting generative AI while maintaining enterprise security standards.
+Wilma 0.2.0 is a beta reboot. The old public 1.x line should be treated as legacy pre-reboot history. The current direction is an auditor-friendly Bedrock posture assessment with evidence-backed findings, scorecards, framework mappings, and clear blind spots.
 
+Wilma helps assess security posture. It does not certify compliance.
 
-## Key Features for GenAI Security
+## What Wilma Produces
 
-### GenAI-Specific Security Checks
-- **Prompt Injection Detection**: Identifies vulnerabilities to prompt manipulation attacks
-- **Data Privacy Compliance**: Detects PII exposure risks in model interactions
-- **Model Poisoning Detection**: Monitors for signs of compromised training data
-- **Cost Anomaly Detection**: Alerts on unusual usage patterns indicating potential abuse
-- **Guardrail Validation**: Ensures content filtering and safety measures are in place
+- Bedrock Security Posture Score, scored from 0-100
+- Assessment Confidence, showing how complete Wilma's automated visibility was
+- Bedrock Security Indicators scorecard
+- Prioritized findings with evidence, affected resources, and remediation guidance
+- Framework mappings for OWASP LLM Top 10, NIST AI RMF, NIST 800-53, AWS Bedrock guidance, and AIUC-1
+- Manual evidence checklist for policies, reviews, testing records, and other artifacts AWS APIs cannot prove
+- Versioned JSON schema for CI, dashboards, and GRC ingestion
 
-### User-Friendly Design
-- **Standard Mode** (default): Clear explanations with both simple and technical details
-- **Learning Mode**: Educational content about each security check
+## Bedrock Security Indicators
 
-## Prerequisites & Setup
+Wilma groups checks into eight Bedrock Security Indicators:
 
-### AWS Authentication Setup
+1. Governance & Inventory
+2. Identity, Access & Agency Control
+3. Data Protection & Privacy
+4. AI Safety & Guardrails
+5. RAG & Model Integrity
+6. Monitoring, Logging & Detection
+7. Network & Runtime Isolation
+8. Resilience & Consumption Controls
 
-This tool requires AWS credentials to access your Bedrock resources. 
+Each indicator maps to one or more external frameworks underneath the Wilma scorecard. The top-level scorecard stays Bedrock-native; the evidence remains framework-traceable.
 
-#### Quick Setup via AWS Console
+## Current Automated Coverage
 
-1. **Create IAM User**
-   - Go to [AWS IAM Console](https://console.aws.amazon.com/iam/)
-   - Click "Users" → "Create user"
-   - Name it `wilma-security-checker`
-   - Select "Programmatic access"
+Wilma currently includes checks for:
 
-2. **Set Permissions**
-   - Choose "Attach existing policies directly"
-   - Either use "PowerUserAccess" OR create a custom policy with:
+- Bedrock Agents security: action confirmation, guardrails, service roles, Lambda action groups, memory, logging, tags, PII, prompt injection patterns, and knowledge base access
+- Guardrails security: filter strength, content coverage, PII filters, denied topics, word filters, KMS, versioning, tags, contextual grounding, and coverage
+- Knowledge Bases and RAG: S3 public access, encryption, versioning, vector store security, PII, prompt injection patterns, IAM, logging, tagging, chunking, and embedding model access
+- Fine-tuning and custom models: training data storage, PII, replay risk, VPC isolation, job logging, output encryption, access logging, IAM roles, tags, source validation, and model documentation
+- Foundational AWS controls: IAM, model access, invocation logging, VPC endpoints, resource tagging, data privacy, and cost anomaly detection
 
-```json
-{
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Effect": "Allow",
-            "Action": [
-                "bedrock:List*",
-                "bedrock:Get*",
-                "bedrock:Describe*",
-                "iam:ListPolicies",
-                "iam:GetPolicy",
-                "iam:GetPolicyVersion",
-                "cloudtrail:DescribeTrails",
-                "cloudtrail:GetEventSelectors",
-                "logs:DescribeLogGroups",
-                "ec2:DescribeVpcEndpoints",
-                "s3:GetBucketEncryption",
-                "sts:GetCallerIdentity"
-            ],
-            "Resource": "*"
-        }
-    ]
-}
-```
+## Installation
 
-3. **Save Credentials**
-   - Download CSV or copy Access Key ID and Secret Access Key
-   - WARNING: You won't see the secret key again!
+Install from source during the 0.2.x reboot:
 
-#### Configure Your Local Machine
-
-**Option 1: AWS CLI (Recommended)**
-```bash
-aws configure
-# Enter your Access Key ID
-# Enter your Secret Access Key
-# Enter default region: us-east-1
-# Enter default output: json
-```
-
-**Option 2: Environment Variables**
-```bash
-export AWS_ACCESS_KEY_ID="your-access-key-here"
-export AWS_SECRET_ACCESS_KEY="your-secret-key-here"
-export AWS_DEFAULT_REGION="us-east-1"
-```
-
-**Option 3: AWS Profile**
-```bash
-# Add to ~/.aws/credentials
-[bedrock-checker]
-aws_access_key_id = your-access-key
-aws_secret_access_key = your-secret-key
-
-# Use with: wilma --profile bedrock-checker
-```
-
-### Supported AWS Regions
-
-Bedrock is available in:
-- US East (N. Virginia) - `us-east-1`
-- US West (Oregon) - `us-west-2`
-- Asia Pacific (Singapore) - `ap-southeast-1`
-- Asia Pacific (Tokyo) - `ap-northeast-1`
-- Europe (Frankfurt) - `eu-central-1`
-- Europe (Ireland) - `eu-west-1`
-
-### Security Best Practices
-
-- Never commit AWS credentials to git
-- Use IAM roles when on AWS infrastructure
-- Apply least privilege permissions
-- Rotate access keys every 90 days
-- Enable MFA on your AWS account
-
-## Quick Start
-
-### Installation
-
-**Option 1: Install from PyPI (Recommended)**
-```bash
-pip install wilma-sec
-
-# Or with uv
-uv pip install wilma-sec
-
-# Run directly from command line
-wilma
-```
-
-**Option 2: Install from Source**
 ```bash
 git clone https://github.com/ethanolivertroy/wilma.git
 cd wilma
-pip install -e .
-
-# Or manually install dependencies
-pip install -r requirements.txt
-wilma
+pip install -e ".[dev]"
+wilma --explain
 ```
 
-### Usage
+The package name remains `wilma-sec` and the CLI command remains `wilma`. If old 1.x releases still exist on PyPI, pin the reboot version explicitly once it is published:
 
 ```bash
-# Run security check (default mode)
+pip install wilma-sec==0.2.0
+```
+
+## Usage
+
+```bash
+# Run the default Bedrock posture assessment
 wilma
 
-# Learning mode - understand the security checks
+# Explain the scoring, indicators, and framework model
+wilma --explain
+
+# Compatibility alias for --explain
 wilma --learn
 
-# Output as JSON for CI/CD integration
+# Fun local terminal presentation mode
+wilma --yabba-dabba-doo
+
+# JSON output for CI, dashboards, or GRC ingestion
 wilma --output json
 
-# Use specific AWS profile
-wilma --profile production
+# Use a specific AWS profile or region
+wilma --profile production --region us-west-2
 
-# Check specific region
-wilma --region us-west-2
+# Run selected automated check modules
+wilma --checks agents,guardrails,knowledge_bases,iam
+
+# Save output to a file
+wilma --output json --output-file wilma-assessment.json
+
+# Show the installed Wilma version
+wilma --version
 ```
 
-## Testing Locally
+`--yabba-dabba-doo` changes terminal presentation only. It does not change checks, evidence, JSON semantics, scoring, or exit codes.
 
-Want to test Wilma with real AWS resources? We've got you covered!
+## AWS Permissions
 
-Use the included demo script to create sample AWS Bedrock resources with intentional security issues:
+Wilma needs read-oriented access to Bedrock and related AWS services. Start with least privilege and add permissions as blind spots appear in the Assessment Confidence section.
 
-```bash
-# Install Wilma first
-pip install -e .
-
-# Create demo resources (with security issues)
-python scripts/demo_setup.py --setup --region us-east-1
-
-# Run Wilma to detect the issues
-python scripts/demo_setup.py --test
-
-# Clean up all demo resources
-python scripts/demo_setup.py --cleanup
-
-# Or do all three steps at once
-python scripts/demo_setup.py --all --confirm
-```
-
-**What the demo creates:**
-- S3 bucket without encryption (HIGH risk)
-- S3 bucket without versioning (MEDIUM risk)
-- S3 bucket without Block Public Access (CRITICAL risk)
-- Knowledge Base without proper tags (LOW risk)
-- IAM role with permissions for testing
-
-**Cost:** Minimal (usually free tier eligible, < $0.10)
-
-**Important:** Remember to run cleanup to avoid ongoing charges!
-
-### Current Security Check Coverage
-
-**Knowledge Bases (RAG) - 12 checks:**
-- S3 bucket public access validation (CRITICAL)
-- S3 bucket encryption verification (HIGH)
-- Vector store encryption (OpenSearch, Aurora, RDS) (HIGH)
-- Vector store access control (CRITICAL)
-- PII pattern detection in configurations (HIGH)
-- Prompt injection pattern detection (HIGH)
-- S3 versioning validation (MEDIUM)
-- IAM role permission audit (HIGH)
-- Chunking configuration review (LOW)
-- CloudWatch logging validation (MEDIUM)
-- Resource tagging compliance (LOW)
-- Embedding model access control (MEDIUM)
-
-**Coming Soon:**
-- AWS Bedrock Agents security (10 checks)
-- Advanced Guardrails validation (11 checks)
-- Model Fine-Tuning security (11 checks)
-
-## Example Output
-
-```
-AWS Bedrock Security Check
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Good News: 3 security best practices are properly configured
-Critical: 1 high-risk issue needs immediate attention
-Attention Needed: 2 medium-risk issues found
-
-CRITICAL ISSUES:
-─────────────────────────
-1. Policy allows unrestricted access to ALL Bedrock operations
-   Where: IAM Policy: BedrockAdminPolicy
-   Risk Score: 9/10
-
-   What this means: This is like giving someone admin access to all your AI models
-   Technical details: Policy contains wildcard actions (bedrock:*) with no resource restrictions
-
-   To fix this, run:
-   > aws iam create-policy-version --policy-arn arn:aws:iam::123456789012:policy/BedrockAdminPolicy --policy-document file://restricted-policy.json --set-as-default
-```
-
-## Security Checks Performed
-
-### Traditional Security
-- IAM permission auditing
-- Encryption validation
-- Network security (VPC endpoints)
-- Audit logging configuration
-- Resource tagging compliance
-
-### GenAI-Specific Security
-- Prompt injection vulnerability assessment
-- PII detection in model configurations
-- Model access pattern analysis
-- Usage anomaly detection setup
-- Real-time threat monitoring
-
-### Knowledge Bases (RAG) Security
-- **S3 Data Source Security**: Public access blocking, encryption, versioning
-- **Vector Store Security**: Encryption and access control for OpenSearch/Aurora/RDS
-- **PII Detection**: Pattern-based scanning of configurations and metadata
-- **Prompt Injection Detection**: Identifies suspicious patterns in KB content
-- **Access Control**: IAM role and policy validation
-- **Configuration Review**: Chunking strategies, logging, and tagging compliance
-
-### Agents Security - NEW! ✨
-- **Action Confirmation**: Validates agents require human approval for mutating operations (OWASP LLM08)
-- **Guardrail Configuration**: Ensures HIGH-strength guardrails against prompt injection (OWASP LLM01)
-- **Service Role Permissions**: Audits IAM roles for least privilege, detects AdministratorAccess
-- **Lambda Function Security**: Validates action group Lambdas aren't publicly invocable, scans for secrets
-- **Knowledge Base Access**: Detects cross-account KB access and missing KB references
-- **Memory Encryption**: Verifies customer-managed KMS keys for session memory (HIPAA, PCI-DSS)
-- **Resource Tagging**: Validates governance tags (Environment, Owner, DataClassification)
-- **PII Detection**: Scans agent metadata for SSN, credit cards, emails, AWS keys
-- **Prompt Injection Patterns**: Identifies dangerous patterns in agent instructions
-- **CloudWatch Logging**: Validates log groups, retention policies, and KMS encryption (SOC 2, ISO 27001)
-
-### Guardrails Security - NEW! ✨
-- **Strength Configuration**: Validates HIGH strength settings for content filters (LOW-strength filters miss 70% of attacks)
-- **Automated Reasoning**: Checks hallucination prevention via contextual grounding (OWASP LLM09)
-- **Content Filter Coverage**: Ensures PROMPT_ATTACK filter is enabled to prevent jailbreaks (OWASP LLM01)
-- **PII Filters**: Verifies sensitive information redaction (GDPR Art. 32, HIPAA, PCI-DSS)
-- **Topic Filters**: Validates denied topics configuration for unauthorized use cases
-- **Word Filters**: Checks profanity and custom word filtering
-- **Guardrail Coverage**: Identifies unprotected agents and knowledge bases (OWASP LLM08)
-- **Version Management**: Validates DRAFT vs PRODUCTION usage for stability
-- **KMS Encryption**: Verifies customer-managed encryption keys (SOC 2, ISO 27001)
-- **Resource Tagging**: Ensures compliance tracking tags
-- **Contextual Grounding**: Validates citation requirements and threshold configuration (0.7+ recommended)
-
-## Architecture
-
-The tool is designed with modularity and extensibility in mind:
-
-```
-wilma/
-├── Security Checks
-│   ├── Traditional AWS Security
-│   └── GenAI-Specific Security
-├── Reporting Modes
-│   ├── Standard (default)
-│   └── Learning
-└── Output Formats
-    ├── Human-readable text
-    └── JSON for automation
-```
-
-## DevSecOps Integration
-
-### CI/CD Pipeline Example
-
-```yaml
-# .github/workflows/bedrock-security.yml
-name: Bedrock Security Audit
-on: [push, pull_request]
-
-jobs:
-  security-check:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
-      
-      - name: Run Bedrock Security Audit
-        run: |
-          pip install wilma-sec
-          wilma --output json > security-report.json
-          
-          # Fail the build if critical issues found
-          if [ $? -eq 2 ]; then
-            echo "Critical security issues detected!"
-            cat security-report.json
-            exit 1
-          fi
-```
-
-## Risk Scoring System
-
-The tool uses a simple 1-10 risk scoring system:
-
-- **9-10**: Critical - Immediate action required
-- **7-8**: High - Address within 24 hours
-- **4-6**: Medium - Plan remediation
-- **1-3**: Low - Best practice improvements
-
-## GenAI Threat Model Coverage
-
-Based on OWASP Top 10 for LLMs and MITRE ATLAS:
-
-| Threat Category | Coverage | Detection Method |
-|----------------|----------|------------------|
-| Prompt Injection | Yes | Pattern matching & guardrail checks |
-| Data Poisoning | Yes | Training source validation |
-| Model Theft | Yes | Access pattern analysis |
-| PII Leakage | Yes | Content scanning |
-| Denial of Service | Yes | Cost & rate monitoring |
-| Supply Chain | Partial | Basic model source verification |
-
-## Learning Mode
-
-To understand the security concepts and checks performed:
-
-```bash
-wilma --learn
-```
-
-This explains:
-- Prompt injection detection techniques
-- PII pattern recognition
-- Model access control principles
-- Audit logging importance
-- Network security for AI
-- Cost monitoring for abuse detection
-
-## Contributing
-
-We welcome contributions! Areas of interest:
-- Additional GenAI attack patterns
-- Integration with more AWS services
-- Support for other cloud providers
-- Enhanced remediation automation
-
-### Development Setup
-```bash
-# Clone and install in development mode
-git clone https://github.com/ethanolivertroy/wilma.git
-cd wilma
-
-# Install with development dependencies
-pip install -e ".[dev]"
-
-# Run tests
-pytest tests/
-
-# Run linting
-ruff check src/ tests/
-
-# Run security scan
-bandit -r src/
-
-# Format code
-ruff format src/ tests/
-```
-
-### Releasing New Versions
-Releases are automated via GitHub Actions:
-- Version changes in `pyproject.toml` trigger automatic PyPI publishing
-- All tests must pass before publishing
-- Git tags are automatically created
-- See `.github/workflows/publish.yml` for workflow details
-
-## Required IAM Permissions
+Example baseline:
 
 ```json
 {
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Effect": "Allow",
-            "Action": [
-                "bedrock:List*",
-                "bedrock:Get*",
-                "bedrock:Describe*",
-                "iam:ListPolicies",
-                "iam:GetPolicy",
-                "iam:GetPolicyVersion",
-                "cloudtrail:DescribeTrails",
-                "cloudtrail:GetEventSelectors",
-                "logs:DescribeLogGroups",
-                "ec2:DescribeVpcEndpoints",
-                "s3:GetBucketEncryption",
-                "sts:GetCallerIdentity"
-            ],
-            "Resource": "*"
-        }
-    ]
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "bedrock:List*",
+        "bedrock:Get*",
+        "bedrock:Describe*",
+        "iam:List*",
+        "iam:Get*",
+        "lambda:Get*",
+        "lambda:List*",
+        "cloudtrail:DescribeTrails",
+        "cloudtrail:GetEventSelectors",
+        "logs:DescribeLogGroups",
+        "logs:DescribeLogStreams",
+        "ec2:DescribeVpcEndpoints",
+        "ec2:DescribeSecurityGroups",
+        "s3:GetBucketEncryption",
+        "s3:GetBucketVersioning",
+        "s3:GetBucketPublicAccessBlock",
+        "s3:GetBucketPolicyStatus",
+        "sts:GetCallerIdentity"
+      ],
+      "Resource": "*"
+    }
+  ]
 }
 ```
 
-## Why This Tool Stands Out
+## Output Model
 
-1. **Dual Focus**: Combines traditional cloud security with GenAI-specific risks
-2. **Accessibility**: Beginner-friendly without sacrificing technical depth
-3. **Actionable**: Provides exact commands to fix issues
-4. **Educational**: Learning mode helps teams understand GenAI security
-5. **Automated**: JSON output enables CI/CD integration
-6. **Comprehensive**: Covers the full spectrum of Bedrock security concerns
+JSON output uses a versioned assessment schema:
 
-## Troubleshooting
-
-### Common Issues
-
-#### "Unable to locate credentials"
-```bash
-# Check if AWS CLI is configured
-aws configure list
-
-# If not configured, run:
-aws configure
+```json
+{
+  "schema_version": "2.0",
+  "assessment_type": "bedrock_security_posture",
+  "posture_score": {
+    "score": 85,
+    "rating": "Needs Improvement"
+  },
+  "assessment_confidence": {
+    "score": 88,
+    "rating": "High"
+  },
+  "bedrock_security_indicators": [],
+  "findings": [],
+  "manual_evidence_needed": []
+}
 ```
 
-#### "You must specify a region"
-```bash
-# Set default region
-export AWS_DEFAULT_REGION=us-east-1
+The report keeps legacy-friendly top-level fields such as `summary`, `findings`, `good_practices`, and `available_models`, while enriching findings with indicator, evidence, and framework mapping fields.
 
-# Or specify in command
-wilma --region us-east-1
-```
+## Exit Codes
 
-#### "Access Denied" errors
-Ensure your IAM user/role has the required permissions listed in the IAM Permissions section above.
+- `0`: No high or critical findings
+- `1`: One or more high findings
+- `2`: One or more critical findings
+- `3`: Runtime error, missing AWS credentials, interruption, or unexpected failure
 
-#### Testing without AWS Account
-While the main security checker requires AWS credentials, you can:
-1. Use the learning mode to understand security concepts: `wilma --learn`
-2. Review the documentation in this README
-3. Use the tool with read-only IAM credentials to explore safely
-
-#### "command not found: wilma" after pip install
-If pip installed the package but the command isn't found:
+## Development
 
 ```bash
-# Option 1: Add Python user bin to PATH
-echo 'export PATH="$HOME/Library/Python/3.11/bin:$PATH"' >> ~/.zshrc
-source ~/.zshrc
-
-# Option 2: Use the full path
-~/Library/Python/3.11/bin/wilma
-
-# Option 3: Create an alias
-echo 'alias wilma="$HOME/Library/Python/3.11/bin/wilma"' >> ~/.zshrc
-source ~/.zshrc
-
-# Option 4: Install with pipx (recommended for CLI tools)
-pipx install wilma-sec
+pip install -e ".[dev]"
+pytest tests/
+ruff check src/ tests/
+bandit -r src/ -s B101,B106,B107,B112,B601
+mypy src/wilma --show-error-codes --pretty
 ```
 
-## Project History
+The project uses mocked AWS clients in tests. No real AWS credentials are required for the test suite.
+Mypy is currently informational while type hints are tightened; CI does not block on it.
 
-Wilma evolved from my earlier AWS Bedrock Security Configuration Checker project. After extensive use and feedback from the community, I rebuilt it from the ground up with a focus on:
+## Release Notes
 
-- **Cleaner Architecture**: Modular design replacing the original monolithic structure
-- **Professional Output**: Text-based status indicators instead of emojis for better terminal compatibility
-- **Better Maintainability**: Separated concerns with dedicated modules for different security checks
-- **Enhanced Usability**: Streamlined installation and CLI experience
+`0.2.0` is the reboot foundation:
 
-The rebranding to "Wilma" represents this fresh start while maintaining the core security-first approach that made the original tool valuable.
-
-## License
-
-This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
-
-See the [LICENSE](LICENSE) file for details.
-
----
-
-**Built by ET for the GenAI security community**
+- Resets the project identity to beta posture assessment
+- Introduces Bedrock Security Indicators
+- Adds posture score and assessment confidence
+- Adds versioned JSON assessment schema
+- Adds manual evidence checklist
+- Adds `--explain` as the auditor-oriented explanation mode
+- Keeps `--learn` as a compatibility alias
+- Adds terminal-only `--yabba-dabba-doo` presentation mode
+- Fixes aggregation so newer check-module findings appear in the main report

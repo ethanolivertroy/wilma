@@ -51,7 +51,7 @@ jobs:
         pytest \
           --cov=wilma \
           --cov-report=term-missing \
-          --cov-fail-under=50  # Matches PR template requirements \
+          --cov-fail-under=50 \
           -v \
           -m "not slow"
       env:

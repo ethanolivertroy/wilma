@@ -9,9 +9,10 @@ the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
 """
 
+import copy
 import os
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any, Optional
 
 import yaml
 
@@ -19,7 +20,7 @@ from wilma.enums import RiskLevel
 
 
 class WilmaConfig:
-    """Configuration manager for Wilma security checks."""
+    """Configuration manager for Wilma posture assessment checks."""
 
     # Default configuration values
     DEFAULT_CONFIG = {
@@ -33,7 +34,17 @@ class WilmaConfig:
             'min_risk_level': 'LOW'
         },
         'checks': {
-            'enabled': ['genai', 'iam', 'logging', 'network', 'tagging', 'knowledge_bases']
+            'enabled': [
+                'agents',
+                'guardrails',
+                'knowledge_bases',
+                'fine_tuning',
+                'iam',
+                'logging',
+                'network',
+                'tagging',
+                'genai',
+            ]
         }
     }
 
@@ -44,7 +55,7 @@ class WilmaConfig:
         Args:
             config_path: Optional path to config file. If None, searches default locations.
         """
-        self.config = self.DEFAULT_CONFIG.copy()
+        self.config = copy.deepcopy(self.DEFAULT_CONFIG)
         self._load_config(config_path)
 
     def _load_config(self, config_path: Optional[str] = None) -> None:
@@ -140,7 +151,17 @@ class WilmaConfig:
             self.config['output']['min_risk_level'] = min_risk
 
         # Validate enabled checks
-        valid_checks = ['genai', 'iam', 'logging', 'network', 'tagging', 'knowledge_bases']
+        valid_checks = [
+            'agents',
+            'guardrails',
+            'knowledge_bases',
+            'fine_tuning',
+            'iam',
+            'logging',
+            'network',
+            'tagging',
+            'genai',
+        ]
         enabled = self.config['checks'].get('enabled', [])
         if not isinstance(enabled, list):
             print("[WARN] Invalid 'enabled' checks configuration, using all checks")
@@ -157,7 +178,7 @@ class WilmaConfig:
     # ========================================================================
 
     @property
-    def required_tags(self) -> List[str]:
+    def required_tags(self) -> list[str]:
         """Get list of required tag keys for resources."""
         return self.config['required_tags']
 
@@ -183,7 +204,7 @@ class WilmaConfig:
         return RiskLevel[level_str]
 
     @property
-    def enabled_checks(self) -> List[str]:
+    def enabled_checks(self) -> list[str]:
         """Get list of enabled check modules."""
         return self.config['checks']['enabled']
 
@@ -244,7 +265,7 @@ class WilmaConfig:
         print(f"  Chunk Size Max: {self.chunk_size_max} tokens")
         print(f"  Chunk Overlap Max: {self.chunk_overlap_max}%")
         print(f"  Log Retention: {self.log_retention_days} days")
-        print(f"  Min Risk Level: {self.min_risk_level.value}")
+        print(f"  Min Risk Level: {self.min_risk_level.label}")
         print(f"  Enabled Checks: {', '.join(self.enabled_checks)}")
         print()
 
@@ -280,7 +301,7 @@ def create_example_config(output_path: str) -> None:
     Args:
         output_path: Path where to save the example config
     """
-    example_config = """# Wilma Security Checker Configuration
+    example_config = """# Wilma Security Posture Assessment Configuration
 # This file allows you to customize Wilma's behavior and checks
 
 # Required tags for governance and access control
@@ -315,15 +336,18 @@ output:
 # Check module configuration
 checks:
   # List of enabled check modules
-  # Available: genai, iam, logging, network, tagging, knowledge_bases
+  # Available: agents, guardrails, knowledge_bases, fine_tuning, iam, logging, network, tagging, genai
   # Remove modules you don't want to run
   enabled:
+    - agents
+    - guardrails
+    - knowledge_bases
+    - fine_tuning
     - genai
     - iam
     - logging
     - network
     - tagging
-    - knowledge_bases
 
 # Advanced: Custom check-specific configuration
 # (Future expansion area for per-check settings)

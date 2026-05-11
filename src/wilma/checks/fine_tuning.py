@@ -24,14 +24,13 @@ OWASP Coverage: LLM03 (Supply Chain), LLM04 (Data/Model Poisoning), LLM06 (Sensi
 MITRE ATLAS: AML.T0020 (Poison Training Data), AML.T0024 (Backdoor ML Model)
 """
 
+import re
 from typing import Dict, List
 
 from botocore.exceptions import ClientError
 
 from wilma.enums import RiskLevel
-from wilma.utils import PII_PATTERNS, handle_aws_error, paginate_aws_results
-
-import re
+from wilma.utils import PII_PATTERNS, handle_aws_error
 
 
 class FineTuningSecurityChecks:
@@ -555,7 +554,7 @@ class FineTuningSecurityChecks:
                 job_arn = job.get('jobArn', '')
 
                 try:
-                    job_details = self.bedrock.get_model_customization_job(
+                    self.bedrock.get_model_customization_job(
                         jobIdentifier=job_arn
                     )
 
@@ -725,10 +724,9 @@ class FineTuningSecurityChecks:
             if not jobs:
                 return findings
 
-            print(f"[CHECK] Analyzing training data buckets for access logging...")
+            print("[CHECK] Analyzing training data buckets for access logging...")
 
             for job in jobs:
-                job_name = job.get('jobName', 'Unknown')
                 job_arn = job.get('jobArn', '')
 
                 try:
@@ -823,7 +821,7 @@ class FineTuningSecurityChecks:
                     role_name = role_arn.split('/')[-1]
 
                     # Get role details
-                    role = self.iam.get_role(RoleName=role_name)
+                    self.iam.get_role(RoleName=role_name)
 
                     # Check attached policies
                     attached_policies = self.iam.list_attached_role_policies(RoleName=role_name)
@@ -1019,14 +1017,13 @@ class FineTuningSecurityChecks:
 
                         # Try to determine bucket owner
                         try:
-                            bucket_location = self.s3.get_bucket_location(Bucket=bucket_name)
+                            self.s3.get_bucket_location(Bucket=bucket_name)
 
                             # Get current account ID
                             current_account = self.checker.account_id
 
                             # Get bucket ACL to check owner
-                            bucket_acl = self.s3.get_bucket_acl(Bucket=bucket_name)
-                            bucket_owner = bucket_acl.get('Owner', {}).get('ID', '')
+                            self.s3.get_bucket_acl(Bucket=bucket_name)
 
                             # Check if bucket is in same account (basic validation)
                             # Note: This is a simplified check - in production, maintain allowlist
@@ -1099,7 +1096,7 @@ class FineTuningSecurityChecks:
                 model_name = model.get('modelName', 'Unknown')
 
                 try:
-                    model_details = self.bedrock.get_custom_model(modelIdentifier=model_arn)
+                    self.bedrock.get_custom_model(modelIdentifier=model_arn)
 
                     # Check for description and documentation
                     # Note: Bedrock may not have a dedicated model card field,

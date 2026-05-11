@@ -380,7 +380,7 @@ def setup_agent_mock(mock_client, agent_id='test-agent', agent_name='Test Agent'
     }
 
     # Setup get_agent_action_group responses using side_effect
-    def get_action_group_side_effect(agentId, actionGroupId, **kwargs):
+    def get_action_group_side_effect(agentId, actionGroupId, **kwargs):  # noqa: N803
         for ag in action_groups:
             if ag.get('id') == actionGroupId:
                 return {

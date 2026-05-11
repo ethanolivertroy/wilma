@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Wilma is an AWS Bedrock security configuration checker that combines traditional cloud security best practices with GenAI-specific security capabilities. It audits AWS Bedrock deployments for security vulnerabilities, misconfigurations, and compliance issues.
+Wilma is an AWS Bedrock Security Posture Assessment tool. It evaluates AWS Bedrock deployments against Bedrock Security Indicators, produces a posture score and assessment confidence, and maps findings to frameworks such as OWASP LLM Top 10, NIST AI RMF, NIST 800-53, AWS guidance, and AIUC-1.
+
+The active reboot version line is `0.2.x` beta. Historical public `1.x` packages are treated as legacy pre-reboot releases.
 
 **Key Technologies:**
 - Python 3.9+ (support for 3.9, 3.10, 3.11, 3.12, 3.13)
@@ -23,17 +25,23 @@ pip install -e ".[dev]"
 # Or install production dependencies only
 pip install -e .
 
-# Or manually install dependencies
-pip install -r requirements.txt
+# Legacy helper file, if needed
+pip install -r requirements-dev.txt
 ```
 
 ### Running Wilma
 ```bash
-# Basic security check
+# Basic posture assessment
 wilma
 
-# Learning mode (educational explanations)
+# Explain mode (scoring, indicators, framework mappings)
+wilma --explain
+
+# Compatibility alias for explain mode
 wilma --learn
+
+# Fun local terminal presentation mode
+wilma --yabba-dabba-doo
 
 # JSON output for CI/CD
 wilma --output json
@@ -91,6 +99,8 @@ bandit -r src/ -s B101,B106,B107,B112,B601
 mypy src/wilma --show-error-codes --pretty
 ```
 
+Mypy is currently informational while type hints are tightened; CI does not block on it.
+
 ### Demo & Local Testing
 ```bash
 # Create demo AWS resources with security issues
@@ -116,7 +126,8 @@ src/wilma/
 ├── checker.py           # BedrockSecurityChecker - main orchestrator
 ├── config.py            # WilmaConfig - configuration management
 ├── enums.py             # SecurityMode, RiskLevel enumerations
-├── reports.py           # ReportGenerator - output formatting (text/JSON)
+├── assessment.py        # Assessment schema, BSI scorecard, scoring, confidence
+├── reports.py           # ReportGenerator - posture output formatting (text/JSON)
 ├── utils.py             # Shared utilities (PII detection, prompt injection patterns, AWS helpers)
 └── checks/              # Security check modules (each inherits checker instance)
     ├── __init__.py      # Exports all check classes
@@ -126,9 +137,9 @@ src/wilma/
     ├── network.py       # VPC endpoints & network security
     ├── tagging.py       # Resource tagging compliance
     ├── knowledge_bases.py  # Knowledge Base (RAG) security (12 checks)
-    ├── agents.py        # Bedrock Agents security (not yet implemented)
-    ├── guardrails.py    # Advanced guardrails validation (not yet implemented)
-    └── fine_tuning.py   # Model fine-tuning security (not yet implemented)
+    ├── agents.py        # Bedrock Agents security (10 checks)
+    ├── guardrails.py    # Advanced guardrails validation (11 checks)
+    └── fine_tuning.py   # Model fine-tuning security (11 checks)
 ```
 
 ### Core Architecture Patterns
@@ -136,7 +147,9 @@ src/wilma/
 **1. Central Orchestrator Pattern:**
 - `BedrockSecurityChecker` initializes all AWS clients once (bedrock, bedrock-agent, bedrock-runtime, iam, s3, ec2, cloudtrail, cloudwatch)
 - Each check module receives the checker instance via `__init__(self, checker)` for client access
-- Findings are centrally collected via `checker.add_finding()` and `checker.add_good_practice()`
+- Legacy findings are centrally collected via `checker.add_finding()` and `checker.add_good_practice()`
+- Newer rich check modules may return local finding dictionaries; `BedrockSecurityChecker.run_all_checks()` merges those into `checker.findings`
+- `AssessmentBuilder` normalizes both shapes into the versioned assessment schema
 
 **2. Check Module Pattern:**
 Each check module in `checks/` follows this structure:
@@ -164,8 +177,8 @@ class SecurityChecks:
         return findings
 ```
 
-**3. Finding Structure:**
-Findings are dictionaries with these fields:
+**3. Finding and Assessment Structure:**
+Legacy findings are dictionaries with these fields:
 - `risk_level`: RiskLevel enum (CRITICAL=9, HIGH=8, MEDIUM=6, LOW=3, INFO=1)
 - `risk_score`: Numeric score from risk_level
 - `category`: Check category (e.g., "Knowledge Base Security")
@@ -176,6 +189,17 @@ Findings are dictionaries with these fields:
 - `technical_details`: Technical depth for experts (optional)
 - `learn_more`: Educational OWASP/MITRE context (optional)
 - `timestamp`: ISO format UTC timestamp
+
+The report layer adapts legacy and rich findings into normalized assessment findings with:
+- `finding_id`
+- `status`
+- `severity`
+- `indicator_id`
+- `indicator`
+- `evidence`
+- `framework_mappings`
+
+Do not make every check module depend on the new schema at once. The intended migration is compatibility first, then explicit per-check results over time.
 
 **4. Configuration System:**
 - `WilmaConfig` loads from `~/.wilma/config.yaml` (or custom path via `--config`)
@@ -195,12 +219,21 @@ Knowledge Base checks handle pagination via `paginate_aws_results()` utility for
 
 ### Security Check Execution Flow
 Order matters for contextual checks:
-1. IAM & Access Control (foundation)
-2. Logging & Monitoring (visibility)
-3. Network Security (connectivity)
-4. Resource Tagging (organization)
-5. GenAI Threats (OWASP LLM Top 10)
-6. Knowledge Bases (RAG-specific, 12 comprehensive checks)
+1. Agents
+2. Guardrails
+3. Knowledge Bases
+4. Fine-Tuning
+5. IAM & Access Control
+6. Logging & Monitoring
+7. Network Security
+8. Resource Tagging
+9. GenAI Threats
+
+When adding a new check module, update:
+- `WilmaConfig.DEFAULT_CONFIG["checks"]["enabled"]`
+- `BedrockSecurityChecker.CHECK_INDICATORS`
+- The README and roadmap coverage sections
+- Assessment/report tests if the new module changes score or confidence semantics
 
 ### Exit Codes
 - `0`: Success, no HIGH/CRITICAL findings
@@ -263,7 +296,8 @@ Two critical security patterns in `utils.py`:
 - **No emojis in output** - text-based status indicators for terminal compatibility
 - **Professional tone** - simple explanations + optional technical details
 - **Actionable remediation** - include AWS CLI fix commands when possible
-- **Educational mode** - OWASP/MITRE references in `learn_more` field
+- **Explain mode** - BSI, scoring, confidence, and framework model
+- **Yabba Dabba Doo mode** - terminal presentation only; scan behavior, JSON, scoring, and exit codes must stay unchanged
 - **Rich terminal UI** - use Rich library for tables, panels, colors in reports.py
 
 ## Testing AWS Resources Locally
