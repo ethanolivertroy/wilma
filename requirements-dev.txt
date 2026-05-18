@@ -9,8 +9,8 @@ moto[bedrock,s3,iam,ec2,logs]>=5.0.0  # Realistic AWS service mocking
 ruff>=0.1.0
 
 # Security scanning
-bandit>=1.7.5
-bandit[toml]>=1.7.5
+bandit>=1.8.6
+bandit[toml]>=1.8.6
 
 # Type checking
 mypy>=1.8.0,<2.0.0
