@@ -19,7 +19,7 @@ types-PyYAML>=6.0.0
 
 # Build and packaging
 build>=1.0.0
-twine>=4.0.0
+twine>=6.2.0
 
 # Development utilities
 ipython>=8.18.1  # Enhanced Python shell
