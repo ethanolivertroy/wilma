@@ -12,6 +12,12 @@ This test suite provides comprehensive coverage for all security checks implemen
 tests/
 ├── __init__.py                 # Test package initialization
 ├── conftest.py                 # Shared pytest fixtures and mocks
+├── contract/                   # API-shape contract tests
+├── test_agent_checks.py        # Bedrock Agents tests
+├── test_assessment.py          # Assessment schema/scoring tests
+├── test_api.py                 # Embeddable library API tests
+├── test_fine_tuning_checks.py  # Fine-tuning and custom model tests
+├── test_guardrails_checks.py   # Bedrock Guardrails tests
 ├── test_utils.py              # Utility function tests
 ├── test_genai_checks.py       # GenAI security check tests
 ├── test_iam_checks.py         # IAM security check tests
@@ -61,13 +67,10 @@ pytest --cov=wilma --cov-report=html tests/
 
 All test files use shared fixtures defined in `conftest.py`:
 
-### `mock_boto3_session`
-Provides a mocked boto3 session with pre-configured AWS service clients.
-
 ### `mock_checker`
 Provides a fully configured `BedrockSecurityChecker` instance with mocked AWS clients.
 
-### `mock_config`
+### `wilma_config`
 Provides a `WilmaConfig` instance with default configuration values.
 
 ### Sample Data Fixtures

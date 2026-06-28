@@ -43,11 +43,11 @@ wilma --help
 
 ### CI/CD Integration
 All pull requests automatically run:
-- **Tests** across Python 3.8, 3.9, 3.10, 3.11, 3.12
+- **Tests** across Python 3.9, 3.10, 3.11, 3.12, 3.13
 - **Linting** with ruff
 - **Security scanning** with bandit
 - **Type checking** with mypy
-- **Coverage check** (minimum 80% required)
+- **Coverage check** (minimum 50% required while the 0.2.x reboot tightens coverage)
 
 See `.github/workflows/test.yml` for details.
 
@@ -63,7 +63,7 @@ See `.github/workflows/test.yml` for details.
 - Test with different AWS configurations
 - Verify standard mode and learning mode work
 - Check JSON output format
-- Aim for 80%+ test coverage
+- Keep coverage above the enforced threshold; aim higher for new Bedrock check modules
 
 ### Areas of Interest
 - New GenAI attack patterns

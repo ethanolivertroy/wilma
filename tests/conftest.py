@@ -90,6 +90,9 @@ def mock_bedrock_agent_client():
     mock_client.list_agents.return_value = {
         'agentSummaries': []
     }
+    mock_client.list_agent_versions.return_value = {
+        'agentVersionSummaries': []
+    }
 
     return mock_client
 

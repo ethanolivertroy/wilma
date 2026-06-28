@@ -16,7 +16,18 @@ __version__ = "0.2.0"
 __author__ = "Ethan Troy"
 __license__ = "GPL-3.0-or-later"
 
+from wilma.api import ScanResult, WilmaScanner
 from wilma.checker import BedrockSecurityChecker
 from wilma.enums import RiskLevel, SecurityMode
+from wilma.exceptions import WilmaCredentialsError, WilmaError
 
-__all__ = ["BedrockSecurityChecker", "SecurityMode", "RiskLevel", "__version__"]
+__all__ = [
+    "BedrockSecurityChecker",
+    "RiskLevel",
+    "ScanResult",
+    "SecurityMode",
+    "WilmaCredentialsError",
+    "WilmaError",
+    "WilmaScanner",
+    "__version__",
+]

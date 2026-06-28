@@ -2,7 +2,6 @@
 include README.md
 include LICENSE
 include CONTRIBUTING.md
-include requirements.txt
 
 # Exclude test files and development artifacts
 exclude .gitignore

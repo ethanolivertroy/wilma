@@ -30,7 +30,9 @@ from typing import Dict, List
 from botocore.exceptions import ClientError
 
 from wilma.enums import RiskLevel
-from wilma.utils import PII_PATTERNS, handle_aws_error
+from wilma.utils import PII_PATTERNS, handle_aws_error, paginate_aws_results
+
+MAX_RESULTS_PER_PAGE = 100
 
 
 class FineTuningSecurityChecks:
@@ -50,6 +52,40 @@ class FineTuningSecurityChecks:
         self.cloudwatch = checker.session.client('logs')
         self.findings = []
 
+    def _record_visibility_gap(self, operation: str, error: Exception) -> None:
+        """Record partial AWS visibility for confidence scoring."""
+        recorder = getattr(self.checker, "record_visibility_gap", None)
+        if callable(recorder):
+            recorder("bedrock", operation, str(error))
+
+    def _list_model_customization_jobs(self) -> List[Dict]:
+        """List all model customization jobs with Bedrock lowercase nextToken pagination."""
+        try:
+            return list(paginate_aws_results(
+                self.bedrock.list_model_customization_jobs,
+                'modelCustomizationJobSummaries',
+                token_key='nextToken',  # noqa: S106
+                token_param='nextToken',  # noqa: S106
+                maxResults=MAX_RESULTS_PER_PAGE,
+            ))
+        except Exception as e:
+            self._record_visibility_gap("list_model_customization_jobs", e)
+            raise
+
+    def _list_custom_models(self) -> List[Dict]:
+        """List all custom models with Bedrock lowercase nextToken pagination."""
+        try:
+            return list(paginate_aws_results(
+                self.bedrock.list_custom_models,
+                'modelSummaries',
+                token_key='nextToken',  # noqa: S106
+                token_param='nextToken',  # noqa: S106
+                maxResults=MAX_RESULTS_PER_PAGE,
+            ))
+        except Exception as e:
+            self._record_visibility_gap("list_custom_models", e)
+            raise
+
     def check_training_data_bucket_security(self) -> List[Dict]:
         """
         Validate S3 buckets containing training data have proper security.
@@ -66,8 +102,7 @@ class FineTuningSecurityChecks:
 
         try:
             # List all model customization jobs
-            jobs_response = self.bedrock.list_model_customization_jobs(maxResults=50)
-            jobs = jobs_response.get('modelCustomizationJobSummaries', [])
+            jobs = self._list_model_customization_jobs()
 
             if not jobs:
                 return findings
@@ -281,8 +316,7 @@ class FineTuningSecurityChecks:
         processed_buckets = set()
 
         try:
-            jobs_response = self.bedrock.list_model_customization_jobs(maxResults=50)
-            jobs = jobs_response.get('modelCustomizationJobSummaries', [])
+            jobs = self._list_model_customization_jobs()
 
             if not jobs:
                 return findings
@@ -386,8 +420,7 @@ class FineTuningSecurityChecks:
         findings = []
 
         try:
-            models_response = self.bedrock.list_custom_models(maxResults=50)
-            models = models_response.get('modelSummaries', [])
+            models = self._list_custom_models()
 
             if not models:
                 return findings
@@ -456,8 +489,7 @@ class FineTuningSecurityChecks:
         findings = []
 
         try:
-            jobs_response = self.bedrock.list_model_customization_jobs(maxResults=50)
-            jobs = jobs_response.get('modelCustomizationJobSummaries', [])
+            jobs = self._list_model_customization_jobs()
 
             if not jobs:
                 return findings
@@ -541,8 +573,7 @@ class FineTuningSecurityChecks:
         findings = []
 
         try:
-            jobs_response = self.bedrock.list_model_customization_jobs(maxResults=50)
-            jobs = jobs_response.get('modelCustomizationJobSummaries', [])
+            jobs = self._list_model_customization_jobs()
 
             if not jobs:
                 return findings
@@ -651,8 +682,7 @@ class FineTuningSecurityChecks:
         findings = []
 
         try:
-            models_response = self.bedrock.list_custom_models(maxResults=50)
-            models = models_response.get('modelSummaries', [])
+            models = self._list_custom_models()
 
             if not models:
                 return findings
@@ -718,8 +748,7 @@ class FineTuningSecurityChecks:
         processed_buckets = set()
 
         try:
-            jobs_response = self.bedrock.list_model_customization_jobs(maxResults=50)
-            jobs = jobs_response.get('modelCustomizationJobSummaries', [])
+            jobs = self._list_model_customization_jobs()
 
             if not jobs:
                 return findings
@@ -794,8 +823,7 @@ class FineTuningSecurityChecks:
         processed_roles = set()
 
         try:
-            jobs_response = self.bedrock.list_model_customization_jobs(maxResults=50)
-            jobs = jobs_response.get('modelCustomizationJobSummaries', [])
+            jobs = self._list_model_customization_jobs()
 
             if not jobs:
                 return findings
@@ -922,8 +950,7 @@ class FineTuningSecurityChecks:
         required_tags = {'Environment', 'Owner', 'DataClassification'}
 
         try:
-            models_response = self.bedrock.list_custom_models(maxResults=50)
-            models = models_response.get('modelSummaries', [])
+            models = self._list_custom_models()
 
             if not models:
                 return findings
@@ -992,8 +1019,7 @@ class FineTuningSecurityChecks:
         findings = []
 
         try:
-            jobs_response = self.bedrock.list_model_customization_jobs(maxResults=50)
-            jobs = jobs_response.get('modelCustomizationJobSummaries', [])
+            jobs = self._list_model_customization_jobs()
 
             if not jobs:
                 return findings
@@ -1083,8 +1109,7 @@ class FineTuningSecurityChecks:
         findings = []
 
         try:
-            models_response = self.bedrock.list_custom_models(maxResults=50)
-            models = models_response.get('modelSummaries', [])
+            models = self._list_custom_models()
 
             if not models:
                 return findings

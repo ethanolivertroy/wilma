@@ -27,6 +27,7 @@ BEDROCK_SECURITY_INDICATORS = [
         "description": "Resource ownership, tagging, environment classification, and audit inventory completeness.",
         "frameworks": {
             "owasp_llm": ["LLM03", "LLM09"],
+            "owasp_agentic": ["ASI04", "ASI10"],
             "nist_ai_rmf": ["Govern", "Map"],
             "nist_800_53": ["CM-8", "PM-5", "RA-3"],
             "aws": ["AWS Well-Architected: Operational Excellence", "AWS Bedrock security governance"],
@@ -39,6 +40,7 @@ BEDROCK_SECURITY_INDICATORS = [
         "description": "Least privilege, service roles, cross-account access, and agent/tool authorization boundaries.",
         "frameworks": {
             "owasp_llm": ["LLM06"],
+            "owasp_agentic": ["ASI02", "ASI03", "ASI07"],
             "nist_ai_rmf": ["Govern", "Manage"],
             "nist_800_53": ["AC-2", "AC-3", "AC-6", "IA-2"],
             "aws": ["IAM least privilege", "Bedrock Agents action group controls"],
@@ -51,6 +53,7 @@ BEDROCK_SECURITY_INDICATORS = [
         "description": "Encryption, PII exposure, training data protection, logs, and customer data isolation.",
         "frameworks": {
             "owasp_llm": ["LLM02"],
+            "owasp_agentic": ["ASI03", "ASI06"],
             "nist_ai_rmf": ["Map", "Measure", "Manage"],
             "nist_800_53": ["SC-13", "SC-28", "SI-12", "PT-2"],
             "aws": ["Bedrock data protection", "KMS encryption", "S3 data protection"],
@@ -63,6 +66,7 @@ BEDROCK_SECURITY_INDICATORS = [
         "description": "Guardrails, content filters, prompt attack protection, grounding, and output safety.",
         "frameworks": {
             "owasp_llm": ["LLM01", "LLM05", "LLM09"],
+            "owasp_agentic": ["ASI01", "ASI02", "ASI09"],
             "nist_ai_rmf": ["Measure", "Manage"],
             "nist_800_53": ["SI-10", "SI-15", "RA-5"],
             "aws": ["Amazon Bedrock Guardrails", "prompt injection controls", "responsible AI controls"],
@@ -75,6 +79,7 @@ BEDROCK_SECURITY_INDICATORS = [
         "description": "Knowledge base security, vector store controls, poisoning resilience, and model/data provenance.",
         "frameworks": {
             "owasp_llm": ["LLM03", "LLM04", "LLM08"],
+            "owasp_agentic": ["ASI04", "ASI06"],
             "nist_ai_rmf": ["Map", "Measure", "Manage"],
             "nist_800_53": ["SA-10", "SI-7", "SR-3", "SR-11"],
             "aws": ["Knowledge Bases for Amazon Bedrock security", "model customization governance"],
@@ -87,6 +92,7 @@ BEDROCK_SECURITY_INDICATORS = [
         "description": "Invocation logging, CloudTrail/CloudWatch evidence, retention, alerts, and anomaly signals.",
         "frameworks": {
             "owasp_llm": ["LLM10"],
+            "owasp_agentic": ["ASI08", "ASI10"],
             "nist_ai_rmf": ["Measure", "Manage"],
             "nist_800_53": ["AU-2", "AU-6", "AU-11", "SI-4"],
             "aws": ["Bedrock model invocation logging", "CloudTrail", "CloudWatch Logs"],
@@ -99,6 +105,7 @@ BEDROCK_SECURITY_INDICATORS = [
         "description": "Private connectivity, VPC endpoints, TLS paths, runtime boundaries, and integration exposure.",
         "frameworks": {
             "owasp_llm": ["LLM02", "LLM06"],
+            "owasp_agentic": ["ASI02", "ASI05", "ASI07"],
             "nist_ai_rmf": ["Manage"],
             "nist_800_53": ["SC-7", "SC-8", "SC-12", "AC-4"],
             "aws": ["VPC endpoints", "private connectivity", "network segmentation"],
@@ -111,6 +118,7 @@ BEDROCK_SECURITY_INDICATORS = [
         "description": "Quotas, throttling, runaway usage, model DoS, cost abuse, and agent loop containment.",
         "frameworks": {
             "owasp_llm": ["LLM10", "LLM06"],
+            "owasp_agentic": ["ASI08", "ASI10"],
             "nist_ai_rmf": ["Measure", "Manage"],
             "nist_800_53": ["CP-10", "SC-5", "SI-4"],
             "aws": ["Service quotas", "cost anomaly detection", "resilience engineering"],
@@ -416,14 +424,19 @@ class AssessmentBuilder:
         self.checker = checker
 
     def build(self) -> dict[str, Any]:
-        raw_findings = list(getattr(self.checker, "findings", []))
+        filtered_findings = getattr(self.checker, "filtered_findings", None)
+        if callable(filtered_findings):
+            raw_findings = list(filtered_findings())
+        else:
+            raw_findings = list(getattr(self.checker, "findings", []))
         normalized_findings = [normalize_finding(finding, index) for index, finding in enumerate(raw_findings, 1)]
         counts = self._severity_counts(normalized_findings)
         score = self._posture_score(normalized_findings)
         assessed_indicators = set(getattr(self.checker, "assessed_indicators", set()))
         assessed_indicators.update(finding["indicator_id"] for finding in normalized_findings)
         indicator_scores = self._indicator_scores(normalized_findings, assessed_indicators)
-        confidence = self._assessment_confidence(assessed_indicators)
+        visibility_gaps = list(getattr(self.checker, "visibility_gaps", []))
+        confidence = self._assessment_confidence(assessed_indicators, visibility_gaps)
 
         summary = {
             "total_findings": len(normalized_findings),
@@ -467,6 +480,8 @@ class AssessmentBuilder:
             "manual_evidence_needed": MANUAL_EVIDENCE_ITEMS,
             "summary": summary,
             "findings": normalized_findings,
+            "filtered_findings": len(normalized_findings),
+            "total_findings_observed": len(getattr(self.checker, "findings", [])),
             "good_practices": getattr(self.checker, "good_practices", []),
             "available_models": getattr(self.checker, "available_models", []),
         }
@@ -528,10 +543,12 @@ class AssessmentBuilder:
             return "Minor Gaps"
         return "No Findings"
 
-    def _assessment_confidence(self, assessed_indicators: set[str]) -> dict[str, Any]:
+    def _assessment_confidence(self, assessed_indicators: set[str], visibility_gaps: list[dict[str, Any]]) -> dict[str, Any]:
         total = len(BEDROCK_SECURITY_INDICATORS)
         assessed = len([indicator for indicator in BEDROCK_SECURITY_INDICATORS if indicator["id"] in assessed_indicators])
-        score = int(round((assessed / total) * 100)) if total else 0
+        coverage_score = int(round((assessed / total) * 100)) if total else 0
+        gap_penalty = min(40, len(visibility_gaps) * 5)
+        score = max(0, coverage_score - gap_penalty)
         blind_spots = [
             {
                 "indicator_id": indicator["id"],
@@ -541,11 +558,22 @@ class AssessmentBuilder:
             for indicator in BEDROCK_SECURITY_INDICATORS
             if indicator["id"] not in assessed_indicators
         ]
+        blind_spots.extend(
+            {
+                "indicator_id": None,
+                "indicator": f"{gap.get('service', 'aws')}:{gap.get('operation', 'unknown')}",
+                "reason": gap.get("reason", "AWS API visibility gap was recorded."),
+            }
+            for gap in visibility_gaps
+        )
         return {
             "score": score,
             "rating": _confidence_rating(score),
             "assessed_indicators": assessed,
             "total_indicators": total,
+            "coverage_score": coverage_score,
+            "visibility_gap_penalty": gap_penalty,
+            "visibility_gaps": visibility_gaps,
             "blind_spots": blind_spots,
         }
 

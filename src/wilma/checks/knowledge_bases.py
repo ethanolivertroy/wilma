@@ -57,6 +57,7 @@ class KnowledgeBaseSecurityChecks:
         self.bedrock_agent = checker.session.client('bedrock-agent')
         self.s3 = checker.session.client('s3')
         self.opensearch = checker.session.client('opensearch')
+        self.opensearchserverless = checker.session.client('opensearchserverless')
         self.findings = []
 
     def __getattribute__(self, name):
@@ -523,16 +524,14 @@ class KnowledgeBaseSecurityChecks:
 
                         if collection_arn:
                             collection_name = collection_arn.split('/')[-1] if '/' in collection_arn else None
-                            policy_getter = getattr(self.bedrock_agent, 'get_collection_security_policy', None)
 
-                            if collection_name and callable(policy_getter):
-                                policy_response = policy_getter(name=collection_name, type='encryption')
+                            if collection_name:
+                                policy_response = self.opensearchserverless.get_security_policy(
+                                    name=collection_name,
+                                    type='encryption',
+                                )
                                 if isinstance(policy_response, dict):
-                                    policy_document = (
-                                        policy_response
-                                        .get('securityPolicyDetail', {})
-                                        .get('policy', '{}')
-                                    )
+                                    policy_document = policy_response.get('securityPolicyDetail', {}).get('policy', '{}')
                                     policy_json = json.loads(policy_document)
                                     uses_aws_owned_key = policy_json.get('AWSOwnedKey', False)
                                     rules = policy_json.get('Rules', [])

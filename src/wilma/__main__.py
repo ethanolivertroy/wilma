@@ -114,6 +114,7 @@ Examples:
 
         if args.min_risk:
             config.config['output']['min_risk_level'] = args.min_risk
+            config._validate_config()
             print(f"[INFO] Filtering findings: minimum risk level = {args.min_risk}")
 
         # Handle --show-config flag
@@ -164,9 +165,10 @@ Examples:
             print(report)
 
         # Exit with appropriate code
-        if any(risk_level_label(f.get('risk_level')) == RiskLevel.CRITICAL.label for f in checker.findings):
+        reported_findings = checker.filtered_findings()
+        if any(risk_level_label(f.get('risk_level')) == RiskLevel.CRITICAL.label for f in reported_findings):
             sys.exit(2)
-        elif any(risk_level_label(f.get('risk_level')) == RiskLevel.HIGH.label for f in checker.findings):
+        elif any(risk_level_label(f.get('risk_level')) == RiskLevel.HIGH.label for f in reported_findings):
             sys.exit(1)
         else:
             sys.exit(0)
