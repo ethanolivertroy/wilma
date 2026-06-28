@@ -92,6 +92,8 @@ ignore = [
     "S107",  # Allow hardcoded password in default function arguments
     "S108",  # Allow hardcoded temp directories
     "S112",  # Allow try-except-continue (acceptable in check modules)
+    "UP006", # Defer built-in generic migration across existing typed modules
+    "UP035", # Defer typing.List/Dict import migration across existing typed modules
 ]
 
 [tool.ruff.lint.per-file-ignores]
