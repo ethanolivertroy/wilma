@@ -45,9 +45,19 @@ MAX_RESULTS_PER_PAGE = 100
 
 
 def _parse_policy_document(policy):
-    """OpenSearch Serverless returns policies as parsed documents; tolerate JSON strings too."""
+    """OpenSearch Serverless returns policies as parsed documents; tolerate JSON strings too.
+
+    Encryption policies are dicts (``{"Rules": [...], "AWSOwnedKey": ...}``) and
+    network/data-access policies are lists of rule objects. Returns [] for None
+    so callers iterating rules never raise TypeError.
+    """
     if isinstance(policy, str):
-        return json.loads(policy)
+        try:
+            return json.loads(policy)
+        except (json.JSONDecodeError, TypeError):
+            return []
+    if policy is None:
+        return []
     return policy
 
 
@@ -845,9 +855,12 @@ class KnowledgeBaseSecurityChecks:
                         if collection_name:
                             try:
                                 findings.extend(self._check_aoss_network_policies(kb_id, kb_name, collection_name))
+                            except Exception as e:
+                                print(f"[WARN] Could not check OpenSearch network policy for {collection_name}: {str(e)}")
+                            try:
                                 findings.extend(self._check_aoss_data_access_policies(kb_id, kb_name, collection_name))
                             except Exception as e:
-                                print(f"[WARN] Could not check OpenSearch collection {collection_name}: {str(e)}")
+                                print(f"[WARN] Could not check OpenSearch data access policy for {collection_name}: {str(e)}")
 
                     elif storage_type == 'RDS':
                         # Aurora/RDS - check for public accessibility

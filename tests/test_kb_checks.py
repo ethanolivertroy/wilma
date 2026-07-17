@@ -540,6 +540,40 @@ class TestKBOpenSearchAccessPolicies:
         critical_findings = [f for f in findings if f.get('risk_level') == RiskLevel.CRITICAL]
         assert len(critical_findings) == 0
 
+    def test_aoss_policy_returned_as_none_does_not_crash(self, mock_checker, mock_aoss_client):
+        """A None policy document should not raise TypeError when iterating rules."""
+        storage_config = {
+            'type': 'OPENSEARCH_SERVERLESS',
+            'opensearchServerlessConfiguration': {
+                'collectionArn': 'arn:aws:aoss:us-east-1:123456789012:collection/test-collection'
+            }
+        }
+        setup_knowledge_base_mock(
+            mock_checker.bedrock_agent,
+            kb_id='kb-123',
+            kb_name='TestKB',
+            storage_config=storage_config
+        )
+
+        # AOSS returns a policy entry but the policy document itself is None.
+        mock_aoss_client.list_security_policies.return_value = {
+            'securityPolicySummaries': [{'name': 'test-collection-network'}]
+        }
+        mock_aoss_client.get_security_policy.return_value = {
+            'securityPolicyDetail': {'type': 'network', 'policy': None}
+        }
+        mock_aoss_client.list_access_policies.return_value = {
+            'accessPolicySummaries': [{'name': 'test-collection-data'}]
+        }
+        mock_aoss_client.get_access_policy.return_value = {
+            'accessPolicyDetail': {'type': 'data', 'policy': None}
+        }
+
+        kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
+        # Should not raise; missing-policy path reports HIGH findings instead.
+        findings = kb_checks.check_vector_store_access_control()
+        assert isinstance(findings, list)
+
 
 class TestKBPublicAccess:
     """Test Knowledge Base S3 public access checks."""

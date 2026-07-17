@@ -11,6 +11,7 @@ from wilma.utils import (
     parse_arn,
     scan_text_for_pii,
     scan_text_for_prompt_injection,
+    statement_actions_resources,
     validate_resource_tags,
 )
 
@@ -190,3 +191,31 @@ class TestTagValidation:
         """Test normalizing None."""
         result = normalize_boto3_tags(None)
         assert result == {}
+
+
+class TestStatementActionsResources:
+    """Test IAM statement Action/Resource normalization."""
+
+    def test_string_values_become_lists(self):
+        actions, resources = statement_actions_resources(
+            {"Action": "s3:GetObject", "Resource": "arn:aws:s3:::bucket/*"}
+        )
+        assert actions == ["s3:GetObject"]
+        assert resources == ["arn:aws:s3:::bucket/*"]
+
+    def test_list_values_are_preserved(self):
+        actions, resources = statement_actions_resources(
+            {"Action": ["s3:GetObject", "s3:PutObject"], "Resource": ["arn:aws:s3:::a", "arn:aws:s3:::b"]}
+        )
+        assert actions == ["s3:GetObject", "s3:PutObject"]
+        assert resources == ["arn:aws:s3:::a", "arn:aws:s3:::b"]
+
+    def test_null_values_become_empty_lists(self):
+        actions, resources = statement_actions_resources({"Action": None, "Resource": None})
+        assert actions == []
+        assert resources == []
+
+    def test_missing_keys_become_empty_lists(self):
+        actions, resources = statement_actions_resources({})
+        assert actions == []
+        assert resources == []

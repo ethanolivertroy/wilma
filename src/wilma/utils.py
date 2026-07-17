@@ -167,12 +167,13 @@ def statement_actions_resources(statement: Dict[str, Any]) -> tuple:
     Return (actions, resources) from an IAM policy statement, normalized to lists.
 
     IAM allows both string and list values for Action and Resource; every
-    wildcard scan needs them as lists.
+    wildcard scan needs them as lists. JSON null values are coerced to []
+    so downstream iteration never raises TypeError.
     """
-    actions = statement.get('Action', [])
+    actions = statement.get('Action') or []
     if isinstance(actions, str):
         actions = [actions]
-    resources = statement.get('Resource', [])
+    resources = statement.get('Resource') or []
     if isinstance(resources, str):
         resources = [resources]
     return actions, resources
