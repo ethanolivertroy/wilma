@@ -55,6 +55,10 @@ Wilma currently includes checks for:
 - Fine-tuning and custom models: training data storage, PII, replay risk, VPC isolation, job logging, output encryption, access logging, IAM roles, tags, source validation, and model documentation
 - Foundational AWS controls: IAM, model access, invocation logging, VPC endpoints, resource tagging, data privacy, and cost anomaly detection
 
+## 2026 AI Security Framework Alignment
+
+Wilma maps automated evidence to both OWASP Top 10 for LLM Applications and the newer OWASP Agentic Application risk model. Agent, tool, memory, RAG, identity, and runtime checks are traced to agentic risks such as goal hijack, tool misuse, identity and privilege abuse, memory/context poisoning, insecure inter-agent communication, cascading failures, and rogue-agent behavior. Wilma still reports a Bedrock-native scorecard first, then exposes framework mappings for audit and GRC workflows.
+
 ## Installation
 
 Install from source during the 0.2.x reboot:
@@ -104,6 +108,20 @@ wilma --version
 ```
 
 `--yabba-dabba-doo` changes terminal presentation only. It does not change checks, evidence, JSON semantics, scoring, or exit codes.
+
+## Library Usage
+
+Security tools can embed Wilma without invoking the CLI:
+
+```python
+from wilma import WilmaScanner
+
+result = WilmaScanner(profile="production", region="us-west-2").scan()
+assessment = result.assessment
+findings = result.findings
+```
+
+The library API raises Wilma exceptions instead of calling `sys.exit()`, making it safe to use from orchestrators, CI systems, and other security platforms.
 
 ## AWS Permissions
 

@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.2.1]
+
+### Added
+- Embeddable library API (`WilmaScanner`, `ScanResult`) and Wilma exception types for downstream security tools
+- Guardrail, fine-tuning, assessment, report, and library API test coverage
+
+### Changed
+- Updated Bedrock Guardrails parsing for current `GetGuardrail` response fields and lowercase `nextToken` pagination
+- Added fine-tuning and custom-model pagination helpers and OpenSearch Serverless policy API usage for Knowledge Base vector encryption checks
+- Wired `--min-risk` filtering into assessment, report, and exit-code behavior and added visibility-gap confidence penalties
+- Updated OWASP Agentic Application mappings and cleaned stale docs and package metadata
+- Raised dependency floors: boto3/botocore >=1.42.97, pyyaml >=6.0.3, and dev tooling (ruff, bandit, mypy, pytest-mock, build, twine, setuptools)
+- Bumped `github/codeql-action` to v4.35.5 in CI workflows
+
 ## [Unreleased]
 
 ### Added

@@ -30,6 +30,7 @@ from wilma.checks import (
 )
 from wilma.config import WilmaConfig
 from wilma.enums import RiskLevel, SecurityMode
+from wilma.exceptions import WilmaCredentialsError
 
 
 class BedrockSecurityChecker:
@@ -89,7 +90,8 @@ class BedrockSecurityChecker:
     def __init__(self, profile_name: str = None, region: str = None,
                  mode: SecurityMode = SecurityMode.STANDARD,
                  config: WilmaConfig = None,
-                 presentation_mode: str = "standard"):
+                 presentation_mode: str = "standard",
+                 exit_on_error: bool = True):
         """
         Initialize checker with AWS credentials and check modules.
 
@@ -127,6 +129,8 @@ class BedrockSecurityChecker:
             self.region = self.session.region_name
             self.account_id = self.session.client('sts').get_caller_identity()['Account']
         except Exception as e:
+            if not exit_on_error:
+                raise WilmaCredentialsError(str(e)) from e
             print(f"[ERROR] Error initializing AWS session: {str(e)}")
             print("\n[TIP] Make sure you have AWS credentials configured.")
             print("      Run 'aws configure' or set AWS_PROFILE environment variable.")
@@ -137,6 +141,7 @@ class BedrockSecurityChecker:
         self.good_practices = []
         self.available_models = []
         self.assessed_indicators = set()
+        self.visibility_gaps = []
 
         # Initialize specialized check modules (each receives this checker instance)
         self.agent_checks = AgentSecurityChecks(self)
@@ -148,6 +153,35 @@ class BedrockSecurityChecker:
         self.logging_checks = LoggingSecurityChecks(self)
         self.network_checks = NetworkSecurityChecks(self)
         self.tagging_checks = TaggingSecurityChecks(self)
+
+    def record_visibility_gap(self, service: str, operation: str, reason: str) -> None:
+        """Record an AWS API blind spot that should reduce assessment confidence."""
+        if any(
+            gap["service"] == service and gap["operation"] == operation and gap["reason"] == reason
+            for gap in self.visibility_gaps
+        ):
+            return
+        gap = {
+            "service": service,
+            "operation": operation,
+            "reason": reason,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        if gap not in self.visibility_gaps:
+            self.visibility_gaps.append(gap)
+
+    def filtered_findings(self) -> list[dict]:
+        """Return findings that meet the configured minimum risk threshold."""
+        filtered = []
+        for finding in self.findings:
+            severity = risk_level_label(finding.get('risk_level'))
+            try:
+                risk_level = RiskLevel[severity]
+            except KeyError:
+                risk_level = RiskLevel.INFO
+            if self.config.should_include_finding(risk_level):
+                filtered.append(finding)
+        return filtered
 
     def add_finding(self, risk_level: RiskLevel, category: str, resource: str,
                    issue: str, recommendation: str, fix_command: str = None,

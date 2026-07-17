@@ -54,6 +54,12 @@ class AgentSecurityChecks:
         self.lambda_client = checker.session.client('lambda')
         self.findings = []
 
+    def _record_visibility_gap(self, service: str, operation: str, error: Exception) -> None:
+        """Record partial API visibility for assessment confidence."""
+        recorder = getattr(self.checker, "record_visibility_gap", None)
+        if callable(recorder):
+            recorder(service, operation, str(error))
+
     def _get_all_agents(self) -> List[Dict]:
         """
         Get all agents with pagination support.
@@ -78,6 +84,63 @@ class AgentSecurityChecks:
             print(f"[ERROR] Failed to list agents: {str(e)}")
 
         return agents
+
+    def _get_agent_versions(self, agent_id: str) -> List[str]:
+        """Return deployed/prepared agent versions plus DRAFT as the editable fallback."""
+        versions = []
+        try:
+            for version_summary in paginate_aws_results(
+                self.bedrock_agent.list_agent_versions,
+                'agentVersionSummaries',
+                token_key='nextToken',  # noqa: S106
+                token_param='nextToken',  # noqa: S106
+                agentId=agent_id,
+                maxResults=MAX_RESULTS_PER_PAGE,
+            ):
+                version = version_summary.get('agentVersion')
+                if version and version != 'DRAFT':
+                    versions.append(version)
+        except ClientError as e:
+            self._record_visibility_gap("bedrock-agent", "list_agent_versions", e)
+            handle_aws_error(e, f"listing versions for agent {agent_id}")
+        except Exception as e:
+            self._record_visibility_gap("bedrock-agent", "list_agent_versions", e)
+            print(f"[WARN] Failed to list versions for agent {agent_id}: {str(e)}")
+
+        versions.append('DRAFT')
+        return list(dict.fromkeys(versions))
+
+    def _list_agent_action_groups(self, agent_id: str, agent_version: str) -> List[Dict]:
+        """List action groups with Bedrock Agent lowercase nextToken pagination."""
+        try:
+            return list(paginate_aws_results(
+                self.bedrock_agent.list_agent_action_groups,
+                'actionGroupSummaries',
+                token_key='nextToken',  # noqa: S106
+                token_param='nextToken',  # noqa: S106
+                agentId=agent_id,
+                agentVersion=agent_version,
+                maxResults=MAX_RESULTS_PER_PAGE,
+            ))
+        except ClientError as e:
+            self._record_visibility_gap("bedrock-agent", "list_agent_action_groups", e)
+            raise
+
+    def _list_agent_knowledge_bases(self, agent_id: str, agent_version: str) -> List[Dict]:
+        """List agent KB associations with Bedrock Agent lowercase nextToken pagination."""
+        try:
+            return list(paginate_aws_results(
+                self.bedrock_agent.list_agent_knowledge_bases,
+                'agentKnowledgeBaseSummaries',
+                token_key='nextToken',  # noqa: S106
+                token_param='nextToken',  # noqa: S106
+                agentId=agent_id,
+                agentVersion=agent_version,
+                maxResults=MAX_RESULTS_PER_PAGE,
+            ))
+        except ClientError as e:
+            self._record_visibility_gap("bedrock-agent", "list_agent_knowledge_bases", e)
+            raise
 
     def check_agent_action_confirmation(self) -> List[Dict]:
         """
@@ -111,14 +174,11 @@ class AgentSecurityChecks:
                 agent_name = agent.get('agentName', agent_id)
 
                 try:
-                    # Get action groups for this agent
-                    action_groups_response = self.bedrock_agent.list_agent_action_groups(
-                        agentId=agent_id,
-                        agentVersion='DRAFT',
-                        maxResults=MAX_RESULTS_PER_PAGE
-                    )
-
-                    action_group_summaries = action_groups_response.get('actionGroupSummaries', [])
+                    action_group_summaries = []
+                    for agent_version in self._get_agent_versions(agent_id):
+                        for action_group in self._list_agent_action_groups(agent_id, agent_version):
+                            action_group["_wilma_agent_version"] = agent_version
+                            action_group_summaries.append(action_group)
 
                     if not action_group_summaries:
                         continue
@@ -127,6 +187,7 @@ class AgentSecurityChecks:
                         ag_id = ag_summary['actionGroupId']
                         ag_name = ag_summary.get('actionGroupName', ag_id)
                         ag_state = ag_summary.get('actionGroupState', 'UNKNOWN')
+                        agent_version = ag_summary.get('_wilma_agent_version', 'DRAFT')
 
                         # Skip disabled action groups
                         if ag_state == 'DISABLED':
@@ -136,7 +197,7 @@ class AgentSecurityChecks:
                             # Get detailed action group configuration
                             ag_details = self.bedrock_agent.get_agent_action_group(
                                 agentId=agent_id,
-                                agentVersion='DRAFT',
+                                agentVersion=agent_version,
                                 actionGroupId=ag_id
                             )
 
@@ -164,7 +225,7 @@ class AgentSecurityChecks:
                                         f'Update action group to require confirmation:\n'
                                         f'aws bedrock-agent update-agent-action-group \\\n'
                                         f'  --agent-id {agent_id} \\\n'
-                                        f'  --agent-version DRAFT \\\n'
+                                        f'  --agent-version {agent_version} \\\n'
                                         f'  --action-group-id {ag_id} \\\n'
                                         f'  --action-group-executor customControl=RETURN_CONTROL\n\n'
                                         f'Then update your application to handle confirmation requests.'
@@ -172,6 +233,7 @@ class AgentSecurityChecks:
                                     'details': {
                                         'agent_id': agent_id,
                                         'agent_name': agent_name,
+                                        'agent_version': agent_version,
                                         'action_group_id': ag_id,
                                         'action_group_name': ag_name,
                                         'executor_type': 'LAMBDA',
@@ -296,8 +358,8 @@ class AgentSecurityChecks:
                         )
 
                         # Check content policy configuration for strength
-                        content_policy = guardrail_response.get('contentPolicy', {})
-                        filters_config = content_policy.get('filtersConfig', [])
+                        content_policy = guardrail_response.get('contentPolicy') or guardrail_response.get('contentPolicyConfig', {})
+                        filters_config = content_policy.get('filters') or content_policy.get('filtersConfig', [])
 
                         # Check if any filters are set to LOW or MEDIUM
                         weak_filters = []
@@ -900,14 +962,11 @@ class AgentSecurityChecks:
                 agent_name = agent.get('agentName', agent_id)
 
                 try:
-                    # Get action groups for this agent
-                    action_groups_response = self.bedrock_agent.list_agent_action_groups(
-                        agentId=agent_id,
-                        agentVersion='DRAFT',
-                        maxResults=MAX_RESULTS_PER_PAGE
-                    )
-
-                    action_group_summaries = action_groups_response.get('actionGroupSummaries', [])
+                    action_group_summaries = []
+                    for agent_version in self._get_agent_versions(agent_id):
+                        for action_group in self._list_agent_action_groups(agent_id, agent_version):
+                            action_group["_wilma_agent_version"] = agent_version
+                            action_group_summaries.append(action_group)
 
                     if not action_group_summaries:
                         continue
@@ -916,6 +975,7 @@ class AgentSecurityChecks:
                         ag_id = ag_summary['actionGroupId']
                         ag_name = ag_summary.get('actionGroupName', ag_id)
                         ag_state = ag_summary.get('actionGroupState', 'UNKNOWN')
+                        agent_version = ag_summary.get('_wilma_agent_version', 'DRAFT')
 
                         # Skip disabled action groups
                         if ag_state == 'DISABLED':
@@ -925,7 +985,7 @@ class AgentSecurityChecks:
                             # Get detailed action group configuration
                             ag_details = self.bedrock_agent.get_agent_action_group(
                                 agentId=agent_id,
-                                agentVersion='DRAFT',
+                                agentVersion=agent_version,
                                 actionGroupId=ag_id
                             )
 
@@ -1123,13 +1183,11 @@ class AgentSecurityChecks:
 
                     # List knowledge bases associated with this agent
                     try:
-                        kb_associations = self.bedrock_agent.list_agent_knowledge_bases(
-                            agentId=agent_id,
-                            agentVersion='DRAFT',
-                            maxResults=MAX_RESULTS_PER_PAGE
-                        )
-
-                        kb_summaries = kb_associations.get('agentKnowledgeBaseSummaries', [])
+                        kb_summaries = []
+                        for agent_version in self._get_agent_versions(agent_id):
+                            for kb_summary in self._list_agent_knowledge_bases(agent_id, agent_version):
+                                kb_summary["_wilma_agent_version"] = agent_version
+                                kb_summaries.append(kb_summary)
 
                         if not kb_summaries:
                             continue
@@ -1137,6 +1195,7 @@ class AgentSecurityChecks:
                         for kb_summary in kb_summaries:
                             kb_id = kb_summary.get('knowledgeBaseId')
                             kb_state = kb_summary.get('knowledgeBaseState', 'UNKNOWN')
+                            agent_version = kb_summary.get('_wilma_agent_version', 'DRAFT')
 
                             # Skip disabled knowledge bases
                             if kb_state == 'DISABLED':
@@ -1184,12 +1243,13 @@ class AgentSecurityChecks:
                                             f'4. If access is not needed, remove the KB association:\n'
                                             f'aws bedrock-agent disassociate-agent-knowledge-base \\\n'
                                             f'  --agent-id {agent_id} \\\n'
-                                            f'  --agent-version DRAFT \\\n'
+                                            f'  --agent-version {agent_version} \\\n'
                                             f'  --knowledge-base-id {kb_id}'
                                         ),
                                         'details': {
                                             'agent_id': agent_id,
                                             'agent_name': agent_name,
+                                            'agent_version': agent_version,
                                             'agent_account': agent_account_id,
                                             'kb_id': kb_id,
                                             'kb_name': kb_name,

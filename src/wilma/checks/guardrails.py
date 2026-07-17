@@ -26,7 +26,7 @@ MITRE ATLAS: AML.T0051 (LLM Prompt Injection), AML.T0048 (Evade ML Model)
 Compliance: SOC 2, ISO 27001, GDPR Art. 32, HIPAA, PCI-DSS
 """
 
-from typing import Dict, List
+from typing import Dict, List, Union
 
 from botocore.exceptions import ClientError
 
@@ -48,6 +48,74 @@ class GuardrailSecurityChecks:
         self.bedrock = checker.bedrock
         self.findings = []
 
+    def _record_visibility_gap(self, operation: str, error: Union[Exception, str]) -> None:
+        """Record API visibility gaps so assessment confidence reflects partial scans."""
+        recorder = getattr(self.checker, "record_visibility_gap", None)
+        if callable(recorder):
+            recorder("bedrock", operation, str(error))
+
+    def _list_guardrails(self, **kwargs) -> List[Dict]:
+        """List guardrails using Bedrock's lowercase nextToken pagination contract."""
+        try:
+            return list(paginate_aws_results(
+                self.bedrock.list_guardrails,
+                result_key='guardrails',
+                token_key='nextToken',  # noqa: S106
+                token_param='nextToken',  # noqa: S106
+                maxResults=100,
+                **kwargs,
+            ))
+        except Exception as e:
+            self._record_visibility_gap("list_guardrails", e)
+            raise
+
+    def _policy(self, guardrail_details: Dict, current_key: str, legacy_key: str) -> Dict:
+        """Read current GetGuardrail policy shapes while tolerating legacy config mocks."""
+        policy = guardrail_details.get(current_key)
+        if policy is None:
+            policy = guardrail_details.get(legacy_key)
+        return policy or {}
+
+    def _policy_items(self, policy: Dict, current_key: str, legacy_key: str) -> List[Dict]:
+        """Read current list fields while tolerating create/update-style config field names."""
+        items = policy.get(current_key)
+        if items is None:
+            items = policy.get(legacy_key)
+        return items or []
+
+    def _content_filters(self, guardrail_details: Dict) -> List[Dict]:
+        content_policy = self._policy(guardrail_details, 'contentPolicy', 'contentPolicyConfig')
+        return self._policy_items(content_policy, 'filters', 'filtersConfig')
+
+    def _contextual_grounding_policy(self, guardrail_details: Dict) -> Dict:
+        return self._policy(
+            guardrail_details,
+            'contextualGroundingPolicy',
+            'contextualGroundingPolicyConfig',
+        )
+
+    def _contextual_grounding_filters(self, guardrail_details: Dict) -> List[Dict]:
+        grounding_policy = self._contextual_grounding_policy(guardrail_details)
+        return self._policy_items(grounding_policy, 'filters', 'filtersConfig')
+
+    def _automated_reasoning_policy(self, guardrail_details: Dict) -> Dict:
+        return self._policy(
+            guardrail_details,
+            'automatedReasoningPolicy',
+            'automatedReasoningPolicyConfig',
+        )
+
+    def _normalized_pii_type(self, pii_type: str) -> str:
+        """Normalize current Bedrock PII entity names to Wilma's category names."""
+        aliases = {
+            'US_SOCIAL_SECURITY_NUMBER': 'SSN',
+            'US_INDIVIDUAL_TAX_IDENTIFICATION_NUMBER': 'SSN',
+            'CREDIT_DEBIT_CARD_NUMBER': 'CREDIT_CARD',
+            'CREDIT_DEBIT_CARD_CVV': 'CREDIT_CARD',
+            'CREDIT_DEBIT_CARD_EXPIRY': 'CREDIT_CARD',
+        }
+        return aliases.get(pii_type, pii_type)
+
     def check_guardrail_strength_configuration(self) -> List[Dict]:
         """
         Verify guardrails use HIGH strength settings, not LOW or MEDIUM.
@@ -63,10 +131,7 @@ class GuardrailSecurityChecks:
 
         try:
             # List all guardrails with pagination
-            guardrails = list(paginate_aws_results(
-                self.bedrock.list_guardrails,
-                result_key='guardrails'
-            ))
+            guardrails = self._list_guardrails()
 
             if not guardrails:
                 # No guardrails is a separate critical issue (covered in coverage check)
@@ -87,8 +152,7 @@ class GuardrailSecurityChecks:
                     )
 
                     # Check content policy filter strength
-                    content_policy = guardrail_details.get('contentPolicyConfig', {})
-                    filters = content_policy.get('filtersConfig', [])
+                    filters = self._content_filters(guardrail_details)
 
                     for filter_config in filters:
                         filter_type = filter_config.get('type', 'UNKNOWN')
@@ -178,10 +242,7 @@ class GuardrailSecurityChecks:
         findings = []
 
         try:
-            guardrails = list(paginate_aws_results(
-                self.bedrock.list_guardrails,
-                result_key='guardrails'
-            ))
+            guardrails = self._list_guardrails()
 
             if not guardrails:
                 return findings
@@ -199,18 +260,44 @@ class GuardrailSecurityChecks:
                         guardrailVersion=guardrail_version
                     )
 
-                    # Check for contextual grounding policy
-                    grounding_policy = guardrail_details.get('contextualGroundingPolicyConfig')
+                    automated_reasoning_policy = self._automated_reasoning_policy(guardrail_details)
+
+                    if automated_reasoning_policy:
+                        policies = automated_reasoning_policy.get('policies', [])
+                        confidence_threshold = automated_reasoning_policy.get('confidenceThreshold')
+                        if not policies and confidence_threshold is None:
+                            findings.append({
+                                'risk_level': RiskLevel.MEDIUM,
+                                'title': 'Automated reasoning policy lacks validation details',
+                                'description': (
+                                    f'Guardrail "{guardrail_name}" has automated reasoning enabled, but Wilma could '
+                                    f'not observe any policy references or confidence threshold. Confirm the policy '
+                                    f'is attached to the deployed guardrail version and produces trace evidence.'
+                                ),
+                                'location': f'Guardrail: {guardrail_name} (v{guardrail_version})',
+                                'resource': f'arn:aws:bedrock:*:*:guardrail/{guardrail_id}',
+                                'remediation': 'Attach an automated reasoning policy and configure a confidence threshold',
+                                'details': {
+                                    'guardrail_id': guardrail_id,
+                                    'guardrail_version': guardrail_version,
+                                    'automated_reasoning_configured': True,
+                                    'owasp_category': 'LLM09: Misinformation'
+                                }
+                            })
+                        continue
+
+                    # Contextual grounding is a related hallucination-control signal for RAG use cases.
+                    grounding_policy = self._contextual_grounding_policy(guardrail_details)
 
                     if not grounding_policy:
                         findings.append({
                             'risk_level': RiskLevel.HIGH,
                             'title': 'Guardrail missing automated reasoning configuration',
                             'description': (
-                                f'Guardrail "{guardrail_name}" does not have contextual grounding '
-                                f'policy configured. This means the guardrail cannot prevent hallucinations '
-                                f'or verify model outputs against source documents. This is critical for '
-                                f'RAG applications where factual accuracy is required.'
+                                f'Guardrail "{guardrail_name}" does not expose automated reasoning or contextual '
+                                f'grounding configuration. This limits automated verification of generated answers '
+                                f'against policy or source evidence, which is important for high-assurance and RAG '
+                                f'applications where factual accuracy is required.'
                             ),
                             'location': f'Guardrail: {guardrail_name} (v{guardrail_version})',
                             'resource': f'arn:aws:bedrock:*:*:guardrail/{guardrail_id}',
@@ -226,13 +313,14 @@ class GuardrailSecurityChecks:
                             'details': {
                                 'guardrail_id': guardrail_id,
                                 'guardrail_version': guardrail_version,
+                                'automated_reasoning_configured': False,
                                 'grounding_policy_configured': False,
                                 'owasp_category': 'LLM09: Misinformation'
                             }
                         })
                     else:
                         # Verify thresholds are configured
-                        filters = grounding_policy.get('filtersConfig', [])
+                        filters = self._policy_items(grounding_policy, 'filters', 'filtersConfig')
                         if not filters:
                             findings.append({
                                 'risk_level': RiskLevel.HIGH,
@@ -279,10 +367,7 @@ class GuardrailSecurityChecks:
         required_filters = {'VIOLENCE', 'HATE', 'INSULTS', 'MISCONDUCT', 'PROMPT_ATTACK'}
 
         try:
-            guardrails = list(paginate_aws_results(
-                self.bedrock.list_guardrails,
-                result_key='guardrails'
-            ))
+            guardrails = self._list_guardrails()
 
             if not guardrails:
                 return findings
@@ -300,8 +385,7 @@ class GuardrailSecurityChecks:
                         guardrailVersion=guardrail_version
                     )
 
-                    content_policy = guardrail_details.get('contentPolicyConfig', {})
-                    filters = content_policy.get('filtersConfig', [])
+                    filters = self._content_filters(guardrail_details)
 
                     configured_filters = {f.get('type') for f in filters}
                     missing_filters = required_filters - configured_filters
@@ -385,10 +469,7 @@ class GuardrailSecurityChecks:
         critical_pii_types = {'NAME', 'EMAIL', 'PHONE', 'SSN', 'CREDIT_CARD', 'ADDRESS'}
 
         try:
-            guardrails = list(paginate_aws_results(
-                self.bedrock.list_guardrails,
-                result_key='guardrails'
-            ))
+            guardrails = self._list_guardrails()
 
             if not guardrails:
                 return findings
@@ -406,7 +487,7 @@ class GuardrailSecurityChecks:
                         guardrailVersion=guardrail_version
                     )
 
-                    pii_policy = guardrail_details.get('sensitiveInformationPolicyConfig')
+                    pii_policy = self._policy(guardrail_details, 'sensitiveInformationPolicy', 'sensitiveInformationPolicyConfig')
 
                     if not pii_policy:
                         findings.append({
@@ -438,8 +519,8 @@ class GuardrailSecurityChecks:
                         })
                     else:
                         # Check configured PII types
-                        pii_entities = pii_policy.get('piiEntitiesConfig', [])
-                        configured_types = {entity.get('type') for entity in pii_entities}
+                        pii_entities = self._policy_items(pii_policy, 'piiEntities', 'piiEntitiesConfig')
+                        configured_types = {self._normalized_pii_type(entity.get('type')) for entity in pii_entities}
                         missing_pii = critical_pii_types - configured_types
 
                         if missing_pii:
@@ -510,10 +591,7 @@ class GuardrailSecurityChecks:
         findings = []
 
         try:
-            guardrails = list(paginate_aws_results(
-                self.bedrock.list_guardrails,
-                result_key='guardrails'
-            ))
+            guardrails = self._list_guardrails()
 
             if not guardrails:
                 return findings
@@ -531,7 +609,7 @@ class GuardrailSecurityChecks:
                         guardrailVersion=guardrail_version
                     )
 
-                    topic_policy = guardrail_details.get('topicPolicyConfig')
+                    topic_policy = self._policy(guardrail_details, 'topicPolicy', 'topicPolicyConfig')
 
                     if not topic_policy:
                         findings.append({
@@ -562,7 +640,7 @@ class GuardrailSecurityChecks:
                         })
                     else:
                         # Check if any topics are defined
-                        topics = topic_policy.get('topicsConfig', [])
+                        topics = self._policy_items(topic_policy, 'topics', 'topicsConfig')
                         if not topics:
                             findings.append({
                                 'risk_level': RiskLevel.MEDIUM,
@@ -606,10 +684,7 @@ class GuardrailSecurityChecks:
         findings = []
 
         try:
-            guardrails = list(paginate_aws_results(
-                self.bedrock.list_guardrails,
-                result_key='guardrails'
-            ))
+            guardrails = self._list_guardrails()
 
             if not guardrails:
                 return findings
@@ -627,7 +702,7 @@ class GuardrailSecurityChecks:
                         guardrailVersion=guardrail_version
                     )
 
-                    word_policy = guardrail_details.get('wordPolicyConfig')
+                    word_policy = self._policy(guardrail_details, 'wordPolicy', 'wordPolicyConfig')
 
                     if not word_policy:
                         findings.append({
@@ -657,8 +732,8 @@ class GuardrailSecurityChecks:
                         })
                     else:
                         # Check if managed word lists or custom words are configured
-                        managed_lists = word_policy.get('managedWordListsConfig', [])
-                        custom_words = word_policy.get('wordsConfig', [])
+                        managed_lists = self._policy_items(word_policy, 'managedWordLists', 'managedWordListsConfig')
+                        custom_words = self._policy_items(word_policy, 'words', 'wordsConfig')
 
                         if not managed_lists and not custom_words:
                             findings.append({
@@ -711,7 +786,10 @@ class GuardrailSecurityChecks:
                 bedrock_agent = self.checker.bedrock_agent
                 agents = list(paginate_aws_results(
                     bedrock_agent.list_agents,
-                    result_key='agentSummaries'
+                    result_key='agentSummaries',
+                    token_key='nextToken',  # noqa: S106
+                    token_param='nextToken',  # noqa: S106
+                    maxResults=100,
                 ))
 
                 print(f"[CHECK] Found {len(agents)} Bedrock agents, checking guardrail associations...")
@@ -769,7 +847,10 @@ class GuardrailSecurityChecks:
                 bedrock_agent = self.checker.bedrock_agent
                 knowledge_bases = list(paginate_aws_results(
                     bedrock_agent.list_knowledge_bases,
-                    result_key='knowledgeBaseSummaries'
+                    result_key='knowledgeBaseSummaries',
+                    token_key='nextToken',  # noqa: S106
+                    token_param='nextToken',  # noqa: S106
+                    maxResults=100,
                 ))
 
                 print(f"[CHECK] Found {len(knowledge_bases)} knowledge bases, checking guardrail associations...")
@@ -799,10 +880,7 @@ class GuardrailSecurityChecks:
         findings = []
 
         try:
-            guardrails = list(paginate_aws_results(
-                self.bedrock.list_guardrails,
-                result_key='guardrails'
-            ))
+            guardrails = self._list_guardrails()
 
             if not guardrails:
                 return findings
@@ -847,9 +925,7 @@ class GuardrailSecurityChecks:
                 # Check if guardrail has any numbered versions
                 try:
                     # List all versions of this guardrail
-                    versions = self.bedrock.list_guardrails(
-                        guardrailIdentifier=guardrail_id
-                    ).get('guardrails', [])
+                    versions = self._list_guardrails(guardrailIdentifier=guardrail_id)
 
                     # Filter to numbered versions only
                     numbered_versions = [v for v in versions if v.get('version', 'DRAFT') != 'DRAFT']
@@ -899,10 +975,7 @@ class GuardrailSecurityChecks:
         findings = []
 
         try:
-            guardrails = list(paginate_aws_results(
-                self.bedrock.list_guardrails,
-                result_key='guardrails'
-            ))
+            guardrails = self._list_guardrails()
 
             if not guardrails:
                 return findings
@@ -979,10 +1052,7 @@ class GuardrailSecurityChecks:
         required_tags = {'Environment', 'Owner', 'DataClassification'}
 
         try:
-            guardrails = list(paginate_aws_results(
-                self.bedrock.list_guardrails,
-                result_key='guardrails'
-            ))
+            guardrails = self._list_guardrails()
 
             if not guardrails:
                 return findings
@@ -1080,10 +1150,7 @@ class GuardrailSecurityChecks:
         findings = []
 
         try:
-            guardrails = list(paginate_aws_results(
-                self.bedrock.list_guardrails,
-                result_key='guardrails'
-            ))
+            guardrails = self._list_guardrails()
 
             if not guardrails:
                 return findings
@@ -1101,11 +1168,11 @@ class GuardrailSecurityChecks:
                         guardrailVersion=guardrail_version
                     )
 
-                    grounding_policy = guardrail_details.get('contextualGroundingPolicyConfig')
+                    grounding_policy = self._contextual_grounding_policy(guardrail_details)
 
                     if grounding_policy:
                         # If grounding policy exists, check for proper configuration
-                        filters = grounding_policy.get('filtersConfig', [])
+                        filters = self._policy_items(grounding_policy, 'filters', 'filtersConfig')
 
                         if filters:
                             # Check threshold values

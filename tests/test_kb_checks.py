@@ -122,7 +122,8 @@ class TestKBVectorStoreEncryption:
         )
 
         # Mock OpenSearch Serverless to return unencrypted collection
-        mock_checker.bedrock_agent.get_collection_security_policy = lambda **kwargs: {
+        kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
+        kb_checks.opensearchserverless.get_security_policy = lambda **kwargs: {
             'securityPolicyDetail': {
                 'type': 'encryption',
                 'policy': json.dumps({
@@ -138,7 +139,6 @@ class TestKBVectorStoreEncryption:
         }
 
         # Run check
-        kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
         findings = kb_checks.check_vector_store_encryption()
 
         # Verify HIGH finding for AWS-owned key (not customer-managed)
@@ -167,7 +167,8 @@ class TestKBVectorStoreEncryption:
         )
 
         # Mock OpenSearch Serverless to return encrypted collection with customer key
-        mock_checker.bedrock_agent.get_collection_security_policy = lambda **kwargs: {
+        kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
+        kb_checks.opensearchserverless.get_security_policy = lambda **kwargs: {
             'securityPolicyDetail': {
                 'type': 'encryption',
                 'policy': json.dumps({
@@ -183,7 +184,6 @@ class TestKBVectorStoreEncryption:
         }
 
         # Run check
-        kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
         kb_checks.check_vector_store_encryption()
 
         # Verify no HIGH findings (collection uses customer-managed key)

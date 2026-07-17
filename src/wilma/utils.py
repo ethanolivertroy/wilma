@@ -10,7 +10,8 @@ the Free Software Foundation, either version 3 of the License, or
 """
 
 import re
-from typing import Any, Callable, Dict, Iterator, List, Optional
+from collections.abc import Iterator
+from typing import Any, Callable, Dict, List, Optional
 
 from botocore.exceptions import ClientError
 

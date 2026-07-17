@@ -50,7 +50,7 @@ Fixes #
 
 ## CI/CD Status
 <!-- The following checks will run automatically -->
-- [ ] GitHub Actions tests pass (Python 3.8, 3.9, 3.10, 3.11, 3.12)
+- [ ] GitHub Actions tests pass (Python 3.9, 3.10, 3.11, 3.12, 3.13)
 - [ ] Code coverage check passes (50% minimum)
 - [ ] Security scanning passes (bandit)
 - [ ] Linting passes (ruff)
