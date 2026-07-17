@@ -14,6 +14,7 @@ from collections.abc import Iterable
 from datetime import datetime, timezone
 from typing import Any
 
+import wilma
 from wilma.enums import RiskLevel
 
 SCHEMA_VERSION = "2.0"
@@ -196,6 +197,20 @@ SEVERITY_ORDER = {
     "INFO": 1,
 }
 
+# Legacy findings carry a closed set of category labels; map them directly to
+# indicators so classification is deterministic. Keyword inference below is
+# only a fallback for rich findings without a category.
+CATEGORY_INDICATORS = {
+    "Access Control": "identity_access_agency",
+    "Audit & Compliance": "monitoring_logging_detection",
+    "Cost Security": "resilience_consumption_controls",
+    "Data Privacy": "data_protection_privacy",
+    "GenAI Security": "ai_safety_guardrails",
+    "Model Security": "rag_model_integrity",
+    "Network Security": "network_runtime_isolation",
+    "Resource Management": "governance_inventory",
+}
+
 INDICATOR_KEYWORDS = [
     (
         "resilience_consumption_controls",
@@ -255,15 +270,11 @@ INDICATOR_KEYWORDS = [
 
 
 def risk_level_label(value: Any) -> str:
-    """Return a stable severity label from RiskLevel enums or strings."""
+    """Return a stable severity label from RiskLevel enums or severity strings."""
     if isinstance(value, RiskLevel):
         return value.label
-    if value is None:
-        return "INFO"
-    if isinstance(value, str):
-        label = value.split(".")[-1].upper()
-        if label in SEVERITY_PENALTIES:
-            return label
+    if isinstance(value, str) and value.upper() in SEVERITY_PENALTIES:
+        return value.upper()
     return "INFO"
 
 
@@ -305,6 +316,10 @@ def infer_indicator_id(finding: dict[str, Any]) -> str:
         normalized = str(explicit_indicator).lower().replace(" ", "_").replace("&", "and")
         if normalized in INDICATOR_BY_ID:
             return normalized
+
+    category_indicator = CATEGORY_INDICATORS.get(finding.get("category"))
+    if category_indicator:
+        return category_indicator
 
     text = _join_finding_text(finding)
     for indicator_id, keywords in INDICATOR_KEYWORDS:
@@ -418,24 +433,26 @@ def _highest_severity(findings: Iterable[dict[str, Any]]):
 
 
 class AssessmentBuilder:
-    """Build the versioned Wilma assessment from a checker instance."""
+    """
+    Build the versioned Wilma assessment from a checker instance.
+
+    The checker contract: findings, filtered_findings(), good_practices,
+    available_models, assessed_indicators, visibility_gaps, account_id,
+    region, and mode.
+    """
 
     def __init__(self, checker: Any):
         self.checker = checker
 
     def build(self) -> dict[str, Any]:
-        filtered_findings = getattr(self.checker, "filtered_findings", None)
-        if callable(filtered_findings):
-            raw_findings = list(filtered_findings())
-        else:
-            raw_findings = list(getattr(self.checker, "findings", []))
+        raw_findings = list(self.checker.filtered_findings())
         normalized_findings = [normalize_finding(finding, index) for index, finding in enumerate(raw_findings, 1)]
         counts = self._severity_counts(normalized_findings)
         score = self._posture_score(normalized_findings)
-        assessed_indicators = set(getattr(self.checker, "assessed_indicators", set()))
+        assessed_indicators = set(self.checker.assessed_indicators)
         assessed_indicators.update(finding["indicator_id"] for finding in normalized_findings)
         indicator_scores = self._indicator_scores(normalized_findings, assessed_indicators)
-        visibility_gaps = list(getattr(self.checker, "visibility_gaps", []))
+        visibility_gaps = list(self.checker.visibility_gaps)
         confidence = self._assessment_confidence(assessed_indicators, visibility_gaps)
 
         summary = {
@@ -445,7 +462,7 @@ class AssessmentBuilder:
             "medium": counts["MEDIUM"],
             "low": counts["LOW"],
             "info": counts["INFO"],
-            "good_practices": len(getattr(self.checker, "good_practices", [])),
+            "good_practices": len(self.checker.good_practices),
             "posture_score": score,
             "posture_rating": _rating_from_score(score, counts),
             "assessment_confidence": confidence["rating"],
@@ -456,13 +473,12 @@ class AssessmentBuilder:
             "assessment_type": ASSESSMENT_TYPE,
             "tool": {
                 "name": "Wilma",
-                "version": self._tool_version(),
+                "version": wilma.__version__,
             },
-            "account_id": getattr(self.checker, "account_id", None),
-            "region": getattr(self.checker, "region", None),
+            "account_id": self.checker.account_id,
+            "region": self.checker.region,
             "scan_time": datetime.now(timezone.utc).isoformat(),
-            "mode": getattr(getattr(self.checker, "mode", None), "value", "standard"),
-            "presentation_mode": getattr(self.checker, "presentation_mode", "standard"),
+            "mode": self.checker.mode.value,
             "posture_score": {
                 "score": score,
                 "rating": summary["posture_rating"],
@@ -481,17 +497,10 @@ class AssessmentBuilder:
             "summary": summary,
             "findings": normalized_findings,
             "filtered_findings": len(normalized_findings),
-            "total_findings_observed": len(getattr(self.checker, "findings", [])),
-            "good_practices": getattr(self.checker, "good_practices", []),
-            "available_models": getattr(self.checker, "available_models", []),
+            "total_findings_observed": len(self.checker.findings),
+            "good_practices": self.checker.good_practices,
+            "available_models": self.checker.available_models,
         }
-
-    def _tool_version(self) -> str:
-        try:
-            from wilma import __version__
-        except Exception:
-            return "unknown"
-        return __version__
 
     def _severity_counts(self, findings: list[dict[str, Any]]) -> dict[str, int]:
         counts = dict.fromkeys(SEVERITY_PENALTIES, 0)

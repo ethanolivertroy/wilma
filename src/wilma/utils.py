@@ -159,6 +159,26 @@ def extract_resource_from_arn(arn: str, default: Optional[str] = None) -> Option
 
 
 # ============================================================================
+# IAM POLICY UTILITIES
+# ============================================================================
+
+def statement_actions_resources(statement: Dict[str, Any]) -> tuple:
+    """
+    Return (actions, resources) from an IAM policy statement, normalized to lists.
+
+    IAM allows both string and list values for Action and Resource; every
+    wildcard scan needs them as lists.
+    """
+    actions = statement.get('Action', [])
+    if isinstance(actions, str):
+        actions = [actions]
+    resources = statement.get('Resource', [])
+    if isinstance(resources, str):
+        resources = [resources]
+    return actions, resources
+
+
+# ============================================================================
 # PAGINATION UTILITIES
 # ============================================================================
 

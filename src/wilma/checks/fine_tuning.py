@@ -30,7 +30,7 @@ from typing import Dict, List
 from botocore.exceptions import ClientError
 
 from wilma.enums import RiskLevel
-from wilma.utils import PII_PATTERNS, handle_aws_error, paginate_aws_results
+from wilma.utils import PII_PATTERNS, handle_aws_error, paginate_aws_results, statement_actions_resources
 
 MAX_RESULTS_PER_PAGE = 100
 
@@ -585,10 +585,6 @@ class FineTuningSecurityChecks:
                 job_arn = job.get('jobArn', '')
 
                 try:
-                    self.bedrock.get_model_customization_job(
-                        jobIdentifier=job_arn
-                    )
-
                     # Check for CloudWatch log group
                     # Bedrock fine-tuning jobs typically log to /aws/bedrock/modelcustomizationjobs
                     log_group_name = '/aws/bedrock/modelcustomizationjobs'
@@ -848,9 +844,6 @@ class FineTuningSecurityChecks:
                     # Extract role name from ARN
                     role_name = role_arn.split('/')[-1]
 
-                    # Get role details
-                    self.iam.get_role(RoleName=role_name)
-
                     # Check attached policies
                     attached_policies = self.iam.list_attached_role_policies(RoleName=role_name)
 
@@ -899,9 +892,7 @@ class FineTuningSecurityChecks:
 
                                 for statement in statements:
                                     if statement.get('Effect') == 'Allow':
-                                        actions = statement.get('Action', [])
-                                        if isinstance(actions, str):
-                                            actions = [actions]
+                                        actions, _ = statement_actions_resources(statement)
 
                                         wildcard_actions = [a for a in actions if '*' in a]
                                         if wildcard_actions:
@@ -1041,15 +1032,12 @@ class FineTuningSecurityChecks:
                     if s3_uri:
                         bucket_name = s3_uri.replace('s3://', '').split('/')[0]
 
-                        # Try to determine bucket owner
                         try:
+                            # Confirm the bucket is reachable before flagging it;
+                            # inaccessible buckets are skipped rather than guessed at.
                             self.s3.get_bucket_location(Bucket=bucket_name)
 
-                            # Get current account ID
                             current_account = self.checker.account_id
-
-                            # Get bucket ACL to check owner
-                            self.s3.get_bucket_acl(Bucket=bucket_name)
 
                             # Check if bucket is in same account (basic validation)
                             # Note: This is a simplified check - in production, maintain allowlist
@@ -1120,41 +1108,31 @@ class FineTuningSecurityChecks:
                 model_arn = model.get('modelArn', '')
                 model_name = model.get('modelName', 'Unknown')
 
-                try:
-                    self.bedrock.get_custom_model(modelIdentifier=model_arn)
-
-                    # Check for description and documentation
-                    # Note: Bedrock may not have a dedicated model card field,
-                    # so we check for basic documentation via description or tags
-
-                    # Check if model has meaningful description
-                    # (In production, you'd define what constitutes "proper documentation")
-                    findings.append({
-                        'risk_level': RiskLevel.LOW,
-                        'title': 'Custom model documentation recommended',
-                        'description': (
-                            f'Custom model "{model_name}" should have comprehensive documentation. '
-                            f'Model cards help document intended use cases, limitations, training data sources, '
-                            f'and ethical considerations. This is important for governance and responsible AI practices.'
-                        ),
-                        'location': f'Custom Model: {model_name}',
-                        'resource': model_arn,
-                        'remediation': (
-                            'Document model details:\n'
-                            '1. Intended use cases and applications\n'
-                            '2. Training data sources and characteristics\n'
-                            '3. Known limitations and biases\n'
-                            '4. Performance metrics and evaluation results\n'
-                            '5. Ethical considerations and risk mitigations'
-                        ),
-                        'details': {
-                            'model_name': model_name,
-                            'recommendation': 'Create comprehensive model card'
-                        }
-                    })
-
-                except ClientError:
-                    pass
+                # Bedrock has no dedicated model card field, so every custom model
+                # gets a low-severity documentation reminder.
+                findings.append({
+                    'risk_level': RiskLevel.LOW,
+                    'title': 'Custom model documentation recommended',
+                    'description': (
+                        f'Custom model "{model_name}" should have comprehensive documentation. '
+                        f'Model cards help document intended use cases, limitations, training data sources, '
+                        f'and ethical considerations. This is important for governance and responsible AI practices.'
+                    ),
+                    'location': f'Custom Model: {model_name}',
+                    'resource': model_arn,
+                    'remediation': (
+                        'Document model details:\n'
+                        '1. Intended use cases and applications\n'
+                        '2. Training data sources and characteristics\n'
+                        '3. Known limitations and biases\n'
+                        '4. Performance metrics and evaluation results\n'
+                        '5. Ethical considerations and risk mitigations'
+                    ),
+                    'details': {
+                        'model_name': model_name,
+                        'recommendation': 'Create comprehensive model card'
+                    }
+                })
 
         except ClientError as e:
             handle_aws_error(e, "listing custom models")

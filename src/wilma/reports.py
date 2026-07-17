@@ -25,6 +25,30 @@ from wilma.assessment import (
 )
 from wilma.enums import RiskLevel
 
+# Presentation themes change terminal styling only; evidence, scores, JSON
+# output, and exit codes are identical across themes.
+REPORT_THEMES = {
+    "standard": {
+        "title": "WILMA BEDROCK SECURITY POSTURE ASSESSMENT",
+        "subtitle": "AWS Bedrock security best-practice and framework-mapped assessment",
+        "border_style": "cyan",
+        "score_title": "Posture Summary",
+        "score_label": "Bedrock Security Posture: {rating} ({score}/100)",
+        "footer_note": None,
+    },
+    "yabba_dabba_doo": {
+        "title": "WILMA'S BEDROCK STONE TABLET",
+        "subtitle": "Yabba Dabba Doo mode - same evidence, more fun",
+        "border_style": "magenta",
+        "score_title": "Stone Tablet Summary",
+        "score_label": "Fred, your Bedrock Security Posture is {rating} ({score}/100)",
+        "footer_note": (
+            "Yabba Dabba Doo mode changed presentation only; "
+            "evidence, score, and exit codes are unchanged."
+        ),
+    },
+}
+
 
 class ReportGenerator:
     """
@@ -36,7 +60,7 @@ class ReportGenerator:
 
     def __init__(self, checker=None, presentation_mode: str = "standard", emit: bool = True):
         self.checker = checker
-        self.presentation_mode = presentation_mode
+        self.theme = REPORT_THEMES[presentation_mode]
         self._buffer = None if emit else io.StringIO()
         self.console = Console(file=self._buffer or sys.stdout, record=True)
 
@@ -67,18 +91,10 @@ class ReportGenerator:
         confidence = assessment["assessment_confidence"]
         summary = assessment["summary"]
 
-        if self.presentation_mode == "yabba_dabba_doo":
-            title = "WILMA'S BEDROCK STONE TABLET"
-            subtitle = "Yabba Dabba Doo mode - same evidence, more fun"
-            border_style = "magenta"
-        else:
-            title = "WILMA BEDROCK SECURITY POSTURE ASSESSMENT"
-            subtitle = "AWS Bedrock security best-practice and framework-mapped assessment"
-            border_style = "cyan"
-
+        border_style = self.theme["border_style"]
         header_text = Text()
-        header_text.append(f"{title}\n", style=f"bold {border_style}")
-        header_text.append(subtitle, style="dim")
+        header_text.append(f"{self.theme['title']}\n", style=f"bold {border_style}")
+        header_text.append(self.theme["subtitle"], style="dim")
         self.console.print(Panel(header_text, box=box.DOUBLE, border_style=border_style, padding=(1, 2)))
 
         self._print_account_context(assessment)
@@ -87,7 +103,7 @@ class ReportGenerator:
         self._print_good_practices(assessment["good_practices"])
         self._print_findings(assessment["findings"])
         self._print_manual_evidence(assessment["manual_evidence_needed"])
-        self._print_footer(assessment)
+        self._print_footer()
 
     def _print_account_context(self, assessment: dict[str, Any]):
         info_table = Table.grid(padding=(0, 2))
@@ -101,14 +117,9 @@ class ReportGenerator:
         self.console.print()
 
     def _print_score_summary(self, score: dict[str, Any], confidence: dict[str, Any], summary: dict[str, Any]):
-        if self.presentation_mode == "yabba_dabba_doo":
-            score_title = "Stone Tablet Summary"
-            score_label = f"Fred, your Bedrock Security Posture is {score['rating']} ({score['score']}/100)"
-        else:
-            score_title = "Posture Summary"
-            score_label = f"Bedrock Security Posture: {score['rating']} ({score['score']}/100)"
+        score_label = self.theme["score_label"].format(rating=score["rating"], score=score["score"])
 
-        score_table = Table(title=score_title, box=box.ROUNDED, show_header=True, header_style="bold cyan")
+        score_table = Table(title=self.theme["score_title"], box=box.ROUNDED, show_header=True, header_style="bold cyan")
         score_table.add_column("Metric", style="bold", width=28)
         score_table.add_column("Value", width=68)
         score_table.add_row("Posture Score", score_label)
@@ -246,15 +257,15 @@ class ReportGenerator:
         ))
         self.console.print()
 
-    def _print_footer(self, assessment: dict[str, Any]):
+    def _print_footer(self):
         tips = Text.from_markup(
             "[bold]Next Steps:[/bold]\n"
             "  - Fix critical and high findings first\n"
             "  - Use [cyan]--explain[/cyan] for the scoring and framework model\n"
             "  - Use [cyan]--output json[/cyan] for CI, GRC ingestion, or dashboards\n"
         )
-        if self.presentation_mode == "yabba_dabba_doo":
-            tips.append("\nYabba Dabba Doo mode changed presentation only; evidence, score, and exit codes are unchanged.", style="dim italic")
+        if self.theme["footer_note"]:
+            tips.append(f"\n{self.theme['footer_note']}", style="dim italic")
 
         self.console.print(Panel(tips, title="Next Steps", border_style="dim", box=box.ROUNDED))
 

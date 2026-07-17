@@ -30,12 +30,25 @@ from typing import Dict, List
 
 from botocore.exceptions import ClientError
 
-from wilma.utils import PII_PATTERNS, PROMPT_INJECTION_PATTERNS, handle_aws_error, paginate_aws_results
+from wilma.utils import (
+    PII_PATTERNS,
+    PROMPT_INJECTION_PATTERNS,
+    handle_aws_error,
+    paginate_aws_results,
+    statement_actions_resources,
+)
 
 from ..enums import RiskLevel
 
 # Constants
 MAX_RESULTS_PER_PAGE = 100
+
+
+def _parse_policy_document(policy):
+    """OpenSearch Serverless returns policies as parsed documents; tolerate JSON strings too."""
+    if isinstance(policy, str):
+        return json.loads(policy)
+    return policy
 
 
 class KnowledgeBaseSecurityChecks:
@@ -56,41 +69,8 @@ class KnowledgeBaseSecurityChecks:
         self.bedrock = checker.bedrock
         self.bedrock_agent = checker.session.client('bedrock-agent')
         self.s3 = checker.session.client('s3')
-        self.opensearch = checker.session.client('opensearch')
-        self.opensearchserverless = checker.session.client('opensearchserverless')
+        self.aoss = checker.session.client('opensearchserverless')
         self.findings = []
-
-    def __getattribute__(self, name):
-        attr = object.__getattribute__(self, name)
-        if name.startswith('check_') and callable(attr):
-            def synced_check(*args, **kwargs):
-                findings = attr(*args, **kwargs)
-                if isinstance(findings, list):
-                    self._sync_checker_findings(findings)
-                return findings
-
-            return synced_check
-        return attr
-
-    def _sync_checker_findings(self, findings):
-        """Keep direct check calls compatible with checker.findings."""
-        existing = {
-            (
-                str(finding.get('risk_level')),
-                finding.get('title') or finding.get('issue') or '',
-                finding.get('resource') or finding.get('location') or '',
-            )
-            for finding in self.checker.findings
-        }
-        for finding in findings:
-            key = (
-                str(finding.get('risk_level')),
-                finding.get('title') or finding.get('issue') or '',
-                finding.get('resource') or finding.get('location') or '',
-            )
-            if key not in existing:
-                self.checker.findings.append(finding)
-                existing.add(key)
 
     def _get_all_knowledge_bases(self) -> List[Dict]:
         """
@@ -116,6 +96,171 @@ class KnowledgeBaseSecurityChecks:
             print(f"[ERROR] Failed to list knowledge bases: {str(e)}")
 
         return knowledge_bases
+
+    def _get_aoss_security_policies(self, collection_name: str, policy_type: str) -> List[Dict]:
+        """
+        Return parsed OpenSearch Serverless security policies covering a collection.
+
+        Security policies cover encryption ('encryption') and network access ('network').
+        """
+        policies = []
+        summaries = self.aoss.list_security_policies(
+            type=policy_type,
+            resource=[f'collection/{collection_name}']
+        ).get('securityPolicySummaries', [])
+        for summary in summaries:
+            detail = self.aoss.get_security_policy(name=summary['name'], type=policy_type)
+            policies.append(_parse_policy_document(detail.get('securityPolicyDetail', {}).get('policy')))
+        return policies
+
+    def _get_aoss_data_access_policies(self, collection_name: str) -> List[Dict]:
+        """Return parsed OpenSearch Serverless data access policies covering a collection."""
+        policies = []
+        summaries = self.aoss.list_access_policies(
+            type='data',
+            resource=[f'collection/{collection_name}']
+        ).get('accessPolicySummaries', [])
+        for summary in summaries:
+            detail = self.aoss.get_access_policy(name=summary['name'], type='data')
+            policies.append(_parse_policy_document(detail.get('accessPolicyDetail', {}).get('policy')))
+        return policies
+
+    def _check_aoss_network_policies(self, kb_id: str, kb_name: str, collection_name: str) -> List[Dict]:
+        """Flag OpenSearch Serverless collections that are publicly reachable or unprotected."""
+        findings = []
+        policies = self._get_aoss_security_policies(collection_name, 'network')
+
+        if not policies:
+            findings.append({
+                'risk_level': RiskLevel.HIGH,
+                'title': 'Knowledge Base OpenSearch collection has no network policy',
+                'description': (
+                    f'Knowledge Base "{kb_name}" uses OpenSearch Serverless '
+                    f'collection "{collection_name}" which has no network access policy. '
+                    f'This may allow unrestricted access.'
+                ),
+                'location': f'Knowledge Base: {kb_name}',
+                'resource': collection_name,
+                'remediation': (
+                    f'Create network policy to restrict access:\n'
+                    f'aws opensearchserverless create-security-policy \\\n'
+                    f'  --name {collection_name}-network \\\n'
+                    f'  --type network \\\n'
+                    f'  --policy \'[{{"Rules":[{{"ResourceType":"collection",'
+                    f'"Resource":["collection/{collection_name}"]}}],'
+                    f'"AllowFromPublic":false,"SourceVPCEs":["your-vpc-endpoint"]}}]\''
+                ),
+                'details': {
+                    'knowledge_base_id': kb_id,
+                    'collection_name': collection_name,
+                    'network_policy': 'NONE'
+                }
+            })
+            return findings
+
+        for policy_json in policies:
+            for rule in policy_json:
+                if rule.get('AllowFromPublic', False):
+                    findings.append({
+                        'risk_level': RiskLevel.CRITICAL,
+                        'title': 'Knowledge Base OpenSearch collection allows public access',
+                        'description': (
+                            f'Knowledge Base "{kb_name}" uses OpenSearch Serverless '
+                            f'collection "{collection_name}" which allows public access. '
+                            f'This exposes your vector embeddings to potential unauthorized access.'
+                        ),
+                        'location': f'Knowledge Base: {kb_name}',
+                        'resource': collection_name,
+                        'remediation': (
+                            f'Update network policy to restrict access to VPC only:\n'
+                            f'aws opensearchserverless update-security-policy \\\n'
+                            f'  --name {collection_name}-network \\\n'
+                            f'  --type network \\\n'
+                            f'  --policy \'[{{"Rules":[{{"ResourceType":"collection",'
+                            f'"Resource":["collection/{collection_name}"]}}],'
+                            f'"AllowFromPublic":false,"SourceVPCEs":["your-vpc-endpoint"]}}]\''
+                        ),
+                        'details': {
+                            'knowledge_base_id': kb_id,
+                            'collection_name': collection_name,
+                            'public_access': True
+                        }
+                    })
+
+        return findings
+
+    def _check_aoss_data_access_policies(self, kb_id: str, kb_name: str, collection_name: str) -> List[Dict]:
+        """Flag missing or wildcard-permissive OpenSearch Serverless data access policies."""
+        findings = []
+        policies = self._get_aoss_data_access_policies(collection_name)
+
+        if not policies:
+            findings.append({
+                'risk_level': RiskLevel.HIGH,
+                'title': 'Knowledge Base OpenSearch collection has no data access policy',
+                'description': (
+                    f'Knowledge Base "{kb_name}" uses OpenSearch Serverless '
+                    f'collection "{collection_name}" which has no data access policy. '
+                    f'Collection may be inaccessible or have default overly permissive access.'
+                ),
+                'location': f'Knowledge Base: {kb_name}',
+                'resource': collection_name,
+                'remediation': (
+                    f'Create data access policy with least-privilege IAM principals:\n'
+                    f'aws opensearchserverless create-access-policy \\\n'
+                    f'  --name {collection_name}-data \\\n'
+                    f'  --type data \\\n'
+                    f'  --policy \'[{{"Rules":[{{"ResourceType":"index",'
+                    f'"Resource":["index/{collection_name}/*"],'
+                    f'"Permission":["aoss:ReadDocument","aoss:WriteDocument"]}}],'
+                    f'"Principal":["arn:aws:iam::ACCOUNT:role/KnowledgeBaseRole"]}}]\''
+                ),
+                'details': {
+                    'knowledge_base_id': kb_id,
+                    'collection_name': collection_name,
+                    'data_policy': 'NONE'
+                }
+            })
+            return findings
+
+        for policy_json in policies:
+            for rule in policy_json:
+                principals = rule.get('Principal', [])
+                if isinstance(principals, str):
+                    principals = [principals]
+
+                permissions = []
+                for policy_rule in rule.get('Rules', []):
+                    permissions.extend(policy_rule.get('Permission', []))
+
+                has_wildcard_principal = any(
+                    principal == '*' or ':*' in principal for principal in principals
+                )
+                if has_wildcard_principal or 'aoss:*' in permissions:
+                    findings.append({
+                        'risk_level': RiskLevel.CRITICAL,
+                        'title': 'Knowledge Base OpenSearch collection has overly permissive data access policy',
+                        'description': (
+                            f'Knowledge Base "{kb_name}" uses OpenSearch Serverless '
+                            f'collection "{collection_name}" with wildcard principals or '
+                            f'wildcard permissions. This can expose vector embeddings to '
+                            f'unintended access.'
+                        ),
+                        'location': f'Knowledge Base: {kb_name}',
+                        'resource': collection_name,
+                        'remediation': (
+                            'Restrict OpenSearch Serverless data access policies to specific '
+                            'IAM roles and minimum required aoss permissions.'
+                        ),
+                        'details': {
+                            'knowledge_base_id': kb_id,
+                            'collection_name': collection_name,
+                            'principals': principals,
+                            'permissions': permissions
+                        }
+                    })
+
+        return findings
 
     def check_s3_bucket_public_access(self) -> List[Dict]:
         """
@@ -521,54 +666,42 @@ class KnowledgeBaseSecurityChecks:
                         # OpenSearch Serverless - check collection ARN
                         oss_config = storage_config.get('opensearchServerlessConfiguration', {})
                         collection_arn = oss_config.get('collectionArn', '')
+                        collection_name = collection_arn.split('/')[-1] if '/' in collection_arn else None
 
-                        if collection_arn:
-                            collection_name = collection_arn.split('/')[-1] if '/' in collection_arn else None
+                        if collection_name:
+                            for policy_json in self._get_aoss_security_policies(collection_name, 'encryption'):
+                                uses_aws_owned_key = policy_json.get('AWSOwnedKey', False)
+                                rules = policy_json.get('Rules', [])
+                                has_customer_key = any(rule.get('KmsARN') for rule in rules)
 
-                            if collection_name:
-                                policy_response = self.opensearchserverless.get_security_policy(
-                                    name=collection_name,
-                                    type='encryption',
-                                )
-                                if isinstance(policy_response, dict):
-                                    policy_document = policy_response.get('securityPolicyDetail', {}).get('policy', '{}')
-                                    policy_json = json.loads(policy_document)
-                                    uses_aws_owned_key = policy_json.get('AWSOwnedKey', False)
-                                    rules = policy_json.get('Rules', [])
-                                    has_customer_key = any(rule.get('KmsARN') for rule in rules)
-
-                                    if uses_aws_owned_key or not has_customer_key:
-                                        findings.append({
-                                            'risk_level': RiskLevel.HIGH,
-                                            'title': 'Knowledge Base OpenSearch collection uses AWS-owned encryption key',
-                                            'description': (
-                                                f'Knowledge Base "{kb_name}" uses OpenSearch Serverless collection '
-                                                f'"{collection_name}" without a customer-managed KMS key. Customer-managed '
-                                                f'keys provide stronger auditability and access control for vector data.'
-                                            ),
-                                            'location': f'Knowledge Base: {kb_name}',
-                                            'resource': collection_name,
-                                            'remediation': (
-                                                'Configure the OpenSearch Serverless encryption policy to use a '
-                                                'customer-managed KMS key.'
-                                            ),
-                                            'details': {
-                                                'knowledge_base_id': kb_id,
-                                                'collection_name': collection_name,
-                                                'aws_owned_key': uses_aws_owned_key,
-                                                'customer_managed_key': has_customer_key
-                                            }
-                                        })
+                                if uses_aws_owned_key or not has_customer_key:
+                                    findings.append({
+                                        'risk_level': RiskLevel.HIGH,
+                                        'title': 'Knowledge Base OpenSearch collection uses AWS-owned encryption key',
+                                        'description': (
+                                            f'Knowledge Base "{kb_name}" uses OpenSearch Serverless collection '
+                                            f'"{collection_name}" without a customer-managed KMS key. Customer-managed '
+                                            f'keys provide stronger auditability and access control for vector data.'
+                                        ),
+                                        'location': f'Knowledge Base: {kb_name}',
+                                        'resource': collection_name,
+                                        'remediation': (
+                                            'Configure the OpenSearch Serverless encryption policy to use a '
+                                            'customer-managed KMS key.'
+                                        ),
+                                        'details': {
+                                            'knowledge_base_id': kb_id,
+                                            'collection_name': collection_name,
+                                            'aws_owned_key': uses_aws_owned_key,
+                                            'customer_managed_key': has_customer_key
+                                        }
+                                    })
 
                     elif storage_type == 'PINECONE':
-                        # Pinecone - managed service, check configuration
-                        storage_config.get('pineconeConfiguration', {})
                         # Pinecone encrypts at rest by default, but we note it
                         print(f"[INFO] Knowledge Base {kb_name} uses Pinecone (encrypted by default)")
 
                     elif storage_type == 'REDIS_ENTERPRISE_CLOUD':
-                        # Redis Enterprise Cloud - check configuration
-                        storage_config.get('redisEnterpriseCloudConfiguration', {})
                         # Redis Enterprise encrypts at rest, but we note it
                         print(f"[INFO] Knowledge Base {kb_name} uses Redis Enterprise (encrypted by default)")
 
@@ -704,240 +837,17 @@ class KnowledgeBaseSecurityChecks:
 
                     # Check based on storage type
                     if storage_type == 'OPENSEARCH_SERVERLESS':
-                        # OpenSearch Serverless - check collection access policy
+                        # OpenSearch Serverless - check network and data access policies
                         oss_config = storage_config.get('opensearchServerlessConfiguration', {})
                         collection_arn = oss_config.get('collectionArn', '')
+                        collection_name = collection_arn.split('/')[-1] if '/' in collection_arn else None
 
-                        if collection_arn:
-                            # Extract collection name from ARN
-                            collection_name = collection_arn.split('/')[-1] if '/' in collection_arn else None
-
-                            if collection_name:
-                                policy_getter = getattr(self.bedrock_agent, 'get_data_access_policy', None)
-                                if callable(policy_getter):
-                                    policy_response = policy_getter(name=collection_name, type='data')
-                                    if isinstance(policy_response, dict):
-                                        policy_document = (
-                                            policy_response
-                                            .get('accessPolicyDetail', {})
-                                            .get('policy', '[]')
-                                        )
-                                        policy_json = json.loads(policy_document)
-                                        for rule in policy_json:
-                                            principals = rule.get('Principal', [])
-                                            if isinstance(principals, str):
-                                                principals = [principals]
-
-                                            permissions = []
-                                            for policy_rule in rule.get('Rules', []):
-                                                permissions.extend(policy_rule.get('Permission', []))
-
-                                            if '*' in principals or 'aoss:*' in permissions:
-                                                findings.append({
-                                                    'risk_level': RiskLevel.CRITICAL,
-                                                    'title': 'Knowledge Base OpenSearch collection has overly permissive data access policy',
-                                                    'description': (
-                                                        f'Knowledge Base "{kb_name}" uses OpenSearch Serverless '
-                                                        f'collection "{collection_name}" with wildcard principals or '
-                                                        f'wildcard permissions. This can expose vector embeddings to '
-                                                        f'unintended access.'
-                                                    ),
-                                                    'location': f'Knowledge Base: {kb_name}',
-                                                    'resource': collection_name,
-                                                    'remediation': (
-                                                        'Restrict OpenSearch Serverless data access policies to specific '
-                                                        'IAM roles and minimum required aoss permissions.'
-                                                    ),
-                                                    'details': {
-                                                        'knowledge_base_id': kb_id,
-                                                        'collection_name': collection_name,
-                                                        'principals': principals,
-                                                        'permissions': permissions
-                                                    }
-                                                })
-
-                                try:
-                                    # Get collection details
-                                    aoss = self.checker.session.client('opensearchserverless')
-                                    collection_response = aoss.batch_get_collection(
-                                        names=[collection_name]
-                                    )
-
-                                    collections = collection_response.get('collectionDetails', [])
-
-                                    if collections:
-                                        collection = collections[0]
-                                        collection.get('type', '')
-
-                                        # OpenSearch Serverless collections should have VPC endpoints
-                                        # Check if collection has network access policy
-                                        try:
-                                            network_policy = aoss.get_access_policy(
-                                                name=f"{collection_name}-network",
-                                                type='network'
-                                            )
-
-                                            policy_detail = network_policy.get('accessPolicyDetail', {})
-                                            policy_document = policy_detail.get('policy', '')
-
-                                            # Parse policy to check for public access
-                                            if policy_document:
-                                                try:
-                                                    policy_json = json.loads(policy_document)
-                                                    # Check for AllowFromPublic rules
-                                                    for rule in policy_json:
-                                                        if rule.get('AllowFromPublic', False):
-                                                            findings.append({
-                                                                'risk_level': RiskLevel.CRITICAL,
-                                                                'title': 'Knowledge Base OpenSearch collection allows public access',
-                                                                'description': (
-                                                                    f'Knowledge Base "{kb_name}" uses OpenSearch Serverless '
-                                                                    f'collection "{collection_name}" which allows public access. '
-                                                                    f'This exposes your vector embeddings to potential unauthorized access.'
-                                                                ),
-                                                                'location': f'Knowledge Base: {kb_name}',
-                                                                'resource': collection_name,
-                                                                'remediation': (
-                                                                    f'Update network policy to restrict access to VPC only:\n'
-                                                                    f'aws opensearchserverless update-access-policy \\\n'
-                                                                    f'  --name {collection_name}-network \\\n'
-                                                                    f'  --type network \\\n'
-                                                                    f'  --policy \'[{{"Rules":[{{"ResourceType":"collection",'
-                                                                    f'"Resource":["collection/{collection_name}"]}}],'
-                                                                    f'"AllowFromPublic":false,"SourceVPCEs":["your-vpc-endpoint"]}}]\''
-                                                                ),
-                                                                'details': {
-                                                                    'knowledge_base_id': kb_id,
-                                                                    'collection_name': collection_name,
-                                                                    'public_access': True
-                                                                }
-                                                            })
-
-                                                except json.JSONDecodeError:
-                                                    print(f"[WARN] Could not parse network policy for collection {collection_name}")
-
-                                        except aoss.exceptions.ResourceNotFoundException:
-                                            # No network policy - potentially public
-                                            findings.append({
-                                                'risk_level': RiskLevel.HIGH,
-                                                'title': 'Knowledge Base OpenSearch collection has no network policy',
-                                                'description': (
-                                                    f'Knowledge Base "{kb_name}" uses OpenSearch Serverless '
-                                                    f'collection "{collection_name}" which has no network access policy. '
-                                                    f'This may allow unrestricted access.'
-                                                ),
-                                                'location': f'Knowledge Base: {kb_name}',
-                                                'resource': collection_name,
-                                                'remediation': (
-                                                    f'Create network policy to restrict access:\n'
-                                                    f'aws opensearchserverless create-access-policy \\\n'
-                                                    f'  --name {collection_name}-network \\\n'
-                                                    f'  --type network \\\n'
-                                                    f'  --policy \'[{{"Rules":[{{"ResourceType":"collection",'
-                                                    f'"Resource":["collection/{collection_name}"]}}],'
-                                                    f'"AllowFromPublic":false,"SourceVPCEs":["your-vpc-endpoint"]}}]\''
-                                                ),
-                                                'details': {
-                                                    'knowledge_base_id': kb_id,
-                                                    'collection_name': collection_name,
-                                                    'network_policy': 'NONE'
-                                                }
-                                            })
-
-                                        # Check data access policy (in addition to network policy)
-                                        try:
-                                            data_policy = aoss.get_access_policy(
-                                                name=f"{collection_name}-data",
-                                                type='data'
-                                            )
-
-                                            policy_detail = data_policy.get('accessPolicyDetail', {})
-                                            policy_document = policy_detail.get('policy', '')
-
-                                            # Parse data access policy
-                                            if policy_document:
-                                                try:
-                                                    policy_json = json.loads(policy_document)
-
-                                                    # Check for overly permissive principals
-                                                    has_wildcard_principal = False
-                                                    for rule in policy_json:
-                                                        principals = rule.get('Principal', [])
-                                                        if isinstance(principals, str):
-                                                            principals = [principals]
-
-                                                        # Check for wildcards in principals
-                                                        for principal in principals:
-                                                            if principal == '*' or ':*' in principal:
-                                                                has_wildcard_principal = True
-                                                                break
-
-                                                    if has_wildcard_principal:
-                                                        findings.append({
-                                                            'risk_level': RiskLevel.HIGH,
-                                                            'title': 'Knowledge Base OpenSearch collection has overly permissive data access policy',
-                                                            'description': (
-                                                                f'Knowledge Base "{kb_name}" uses OpenSearch Serverless '
-                                                                f'collection "{collection_name}" with a data access policy '
-                                                                f'that grants access to wildcard principals. This may allow '
-                                                                f'unintended IAM principals to access your vector embeddings.'
-                                                            ),
-                                                            'location': f'Knowledge Base: {kb_name}',
-                                                            'resource': collection_name,
-                                                            'remediation': (
-                                                                f'Update data access policy to specific IAM principals:\n'
-                                                                f'aws opensearchserverless update-access-policy \\\n'
-                                                                f'  --name {collection_name}-data \\\n'
-                                                                f'  --type data \\\n'
-                                                                f'  --policy \'[{{"Rules":[{{"ResourceType":"index",'
-                                                                f'"Resource":["index/{collection_name}/*"],'
-                                                                f'"Permission":["aoss:ReadDocument","aoss:WriteDocument"]}}],'
-                                                                f'"Principal":["arn:aws:iam::ACCOUNT:role/SpecificRole"]}}]\''
-                                                            ),
-                                                            'details': {
-                                                                'knowledge_base_id': kb_id,
-                                                                'collection_name': collection_name,
-                                                                'issue': 'Wildcard principals in data access policy'
-                                                            }
-                                                        })
-
-                                                except json.JSONDecodeError:
-                                                    print(f"[WARN] Could not parse data access policy for collection {collection_name}")
-
-                                        except aoss.exceptions.ResourceNotFoundException:
-                                            # No data access policy
-                                            findings.append({
-                                                'risk_level': RiskLevel.HIGH,
-                                                'title': 'Knowledge Base OpenSearch collection has no data access policy',
-                                                'description': (
-                                                    f'Knowledge Base "{kb_name}" uses OpenSearch Serverless '
-                                                    f'collection "{collection_name}" which has no data access policy. '
-                                                    f'Collection may be inaccessible or have default overly permissive access.'
-                                                ),
-                                                'location': f'Knowledge Base: {kb_name}',
-                                                'resource': collection_name,
-                                                'remediation': (
-                                                    f'Create data access policy with least-privilege IAM principals:\n'
-                                                    f'aws opensearchserverless create-access-policy \\\n'
-                                                    f'  --name {collection_name}-data \\\n'
-                                                    f'  --type data \\\n'
-                                                    f'  --policy \'[{{"Rules":[{{"ResourceType":"index",'
-                                                    f'"Resource":["index/{collection_name}/*"],'
-                                                    f'"Permission":["aoss:ReadDocument","aoss:WriteDocument"]}}],'
-                                                    f'"Principal":["arn:aws:iam::ACCOUNT:role/KnowledgeBaseRole"]}}]\''
-                                                ),
-                                                'details': {
-                                                    'knowledge_base_id': kb_id,
-                                                    'collection_name': collection_name,
-                                                    'data_policy': 'NONE'
-                                                }
-                                            })
-
-                                        except Exception as e:
-                                            print(f"[WARN] Could not check data access policy for {collection_name}: {str(e)}")
-
-                                except Exception as e:
-                                    print(f"[WARN] Could not check OpenSearch collection {collection_name}: {str(e)}")
+                        if collection_name:
+                            try:
+                                findings.extend(self._check_aoss_network_policies(kb_id, kb_name, collection_name))
+                                findings.extend(self._check_aoss_data_access_policies(kb_id, kb_name, collection_name))
+                            except Exception as e:
+                                print(f"[WARN] Could not check OpenSearch collection {collection_name}: {str(e)}")
 
                     elif storage_type == 'RDS':
                         # Aurora/RDS - check for public accessibility
@@ -1509,10 +1419,6 @@ class KnowledgeBaseSecurityChecks:
 
                         if role_name:
                             try:
-                                # Get role policies
-                                role_response = self.checker.iam.get_role(RoleName=role_name)
-                                role_response.get('Role', {})
-
                                 # Check attached policies
                                 attached_policies_response = self.checker.iam.list_attached_role_policies(
                                     RoleName=role_name
@@ -1569,12 +1475,7 @@ class KnowledgeBaseSecurityChecks:
                                             if statement.get('Effect') != 'Allow':
                                                 continue
 
-                                            actions = statement.get('Action', [])
-                                            resources = statement.get('Resource', [])
-                                            if isinstance(actions, str):
-                                                actions = [actions]
-                                            if isinstance(resources, str):
-                                                resources = [resources]
+                                            actions, resources = statement_actions_resources(statement)
 
                                             has_service_wildcard = any(action == '*' or action.endswith(':*') for action in actions)
                                             has_wildcard_resource = any(resource == '*' for resource in resources)
@@ -1623,13 +1524,7 @@ class KnowledgeBaseSecurityChecks:
                                         # Check for overly permissive actions
                                         for statement in policy_doc.get('Statement', []):
                                             if statement.get('Effect') == 'Allow':
-                                                actions = statement.get('Action', [])
-                                                if isinstance(actions, str):
-                                                    actions = [actions]
-
-                                                resources = statement.get('Resource', [])
-                                                if isinstance(resources, str):
-                                                    resources = [resources]
+                                                actions, resources = statement_actions_resources(statement)
 
                                                 # Check for dangerous wildcard permissions
                                                 has_wildcard_action = any(action == '*' for action in actions)
@@ -1739,7 +1634,6 @@ class KnowledgeBaseSecurityChecks:
 
                         data_source_config = ds_details.get('dataSource', {})
                         ds_config = data_source_config.get('dataSourceConfiguration', {})
-                        ds_config.get('s3Configuration', {})
 
                         # Check chunking strategy
                         chunking_config = (
@@ -2295,14 +2189,7 @@ class KnowledgeBaseSecurityChecks:
                             if statement.get('Effect') != 'Allow':
                                 continue
 
-                            actions = statement.get('Action', [])
-                            resources = statement.get('Resource', [])
-
-                            # Convert to list if single string
-                            if isinstance(actions, str):
-                                actions = [actions]
-                            if isinstance(resources, str):
-                                resources = [resources]
+                            actions, resources = statement_actions_resources(statement)
 
                             # Check for bedrock:InvokeModel or bedrock:* with wildcard resources
                             has_invoke_model = any(

@@ -8,20 +8,21 @@ from wilma.reports import ReportGenerator
 
 
 def _fake_checker():
+    findings = [
+        {
+            "risk_level": RiskLevel.HIGH,
+            "category": "Audit & Compliance",
+            "resource": "Model Invocation Logging",
+            "issue": "Logging disabled",
+            "recommendation": "Enable model invocation logging",
+        }
+    ]
     return SimpleNamespace(
         account_id="123456789012",
         region="us-east-1",
         mode=SecurityMode.STANDARD,
-        presentation_mode="standard",
-        findings=[
-            {
-                "risk_level": RiskLevel.HIGH,
-                "category": "Audit & Compliance",
-                "resource": "Model Invocation Logging",
-                "issue": "Logging disabled",
-                "recommendation": "Enable model invocation logging",
-            }
-        ],
+        findings=findings,
+        filtered_findings=lambda: findings,
         good_practices=[
             {
                 "category": "Logging",

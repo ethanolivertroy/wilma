@@ -100,7 +100,7 @@ class TestKBDataSourceEncryption:
 class TestKBVectorStoreEncryption:
     """Test Knowledge Base vector store encryption checks."""
 
-    def test_unencrypted_opensearch_collection(self, mock_checker):
+    def test_unencrypted_opensearch_collection(self, mock_checker, mock_aoss_client):
         """Test detection of unencrypted OpenSearch Serverless collections."""
         # Configure Bedrock Agent mock with unencrypted OpenSearch config
         storage_config = {
@@ -121,12 +121,14 @@ class TestKBVectorStoreEncryption:
             storage_config=storage_config
         )
 
-        # Mock OpenSearch Serverless to return unencrypted collection
-        kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
-        kb_checks.opensearchserverless.get_security_policy = lambda **kwargs: {
+        # Mock OpenSearch Serverless to return an AWS-owned-key encryption policy
+        mock_aoss_client.list_security_policies.return_value = {
+            'securityPolicySummaries': [{'name': 'test-collection-encryption'}]
+        }
+        mock_aoss_client.get_security_policy.return_value = {
             'securityPolicyDetail': {
                 'type': 'encryption',
-                'policy': json.dumps({
+                'policy': {
                     'Rules': [
                         {
                             'Resource': ['collection/test-collection'],
@@ -134,18 +136,19 @@ class TestKBVectorStoreEncryption:
                         }
                     ],
                     'AWSOwnedKey': True
-                })
+                }
             }
         }
 
         # Run check
+        kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
         findings = kb_checks.check_vector_store_encryption()
 
         # Verify HIGH finding for AWS-owned key (not customer-managed)
         high_findings = [f for f in findings if f.get('risk_level') == RiskLevel.HIGH]
         assert len(high_findings) > 0
 
-    def test_encrypted_opensearch_collection(self, mock_checker):
+    def test_encrypted_opensearch_collection(self, mock_checker, mock_aoss_client):
         """Test that encrypted OpenSearch collections pass validation."""
         # Configure Bedrock Agent mock with encrypted OpenSearch config
         storage_config = {
@@ -166,12 +169,14 @@ class TestKBVectorStoreEncryption:
             storage_config=storage_config
         )
 
-        # Mock OpenSearch Serverless to return encrypted collection with customer key
-        kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
-        kb_checks.opensearchserverless.get_security_policy = lambda **kwargs: {
+        # Mock OpenSearch Serverless to return a customer-managed-key encryption policy
+        mock_aoss_client.list_security_policies.return_value = {
+            'securityPolicySummaries': [{'name': 'test-collection-encryption'}]
+        }
+        mock_aoss_client.get_security_policy.return_value = {
             'securityPolicyDetail': {
                 'type': 'encryption',
-                'policy': json.dumps({
+                'policy': {
                     'Rules': [
                         {
                             'Resource': ['collection/test-collection'],
@@ -179,15 +184,16 @@ class TestKBVectorStoreEncryption:
                             'KmsARN': 'arn:aws:kms:us-east-1:123456789012:key/12345678-1234-1234-1234-123456789012'
                         }
                     ]
-                })
+                }
             }
         }
 
         # Run check
-        kb_checks.check_vector_store_encryption()
+        kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
+        findings = kb_checks.check_vector_store_encryption()
 
         # Verify no HIGH findings (collection uses customer-managed key)
-        high_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.HIGH]
+        high_findings = [f for f in findings if f.get('risk_level') == RiskLevel.HIGH]
         assert len(high_findings) == 0
 
 
@@ -450,7 +456,7 @@ class TestKBPIIDetection:
 class TestKBOpenSearchAccessPolicies:
     """Test Knowledge Base OpenSearch access policy checks."""
 
-    def test_overly_permissive_data_access_policy(self, mock_checker):
+    def test_overly_permissive_data_access_policy(self, mock_checker, mock_aoss_client):
         """Test detection of overly permissive data access policies."""
         # Configure Bedrock Agent mock
         storage_config = {
@@ -467,17 +473,20 @@ class TestKBOpenSearchAccessPolicies:
         )
 
         # Mock overly permissive data access policy
-        mock_checker.bedrock_agent.get_data_access_policy = lambda **kwargs: {
+        mock_aoss_client.list_access_policies.return_value = {
+            'accessPolicySummaries': [{'name': 'test-collection-data'}]
+        }
+        mock_aoss_client.get_access_policy.return_value = {
             'accessPolicyDetail': {
                 'type': 'data',
-                'policy': json.dumps([{
+                'policy': [{
                     'Rules': [{
                         'Resource': ['collection/test-collection'],
                         'Permission': ['aoss:*'],
                         'ResourceType': 'collection'
                     }],
                     'Principal': ['*']
-                }])
+                }]
             }
         }
 
@@ -489,7 +498,7 @@ class TestKBOpenSearchAccessPolicies:
         critical_findings = [f for f in findings if f.get('risk_level') == RiskLevel.CRITICAL]
         assert len(critical_findings) > 0
 
-    def test_restrictive_data_access_policy(self, mock_checker):
+    def test_restrictive_data_access_policy(self, mock_checker, mock_aoss_client):
         """Test that restrictive data access policies pass validation."""
         # Configure Bedrock Agent mock
         storage_config = {
@@ -506,26 +515,29 @@ class TestKBOpenSearchAccessPolicies:
         )
 
         # Mock restrictive data access policy
-        mock_checker.bedrock_agent.get_data_access_policy = lambda **kwargs: {
+        mock_aoss_client.list_access_policies.return_value = {
+            'accessPolicySummaries': [{'name': 'test-collection-data'}]
+        }
+        mock_aoss_client.get_access_policy.return_value = {
             'accessPolicyDetail': {
                 'type': 'data',
-                'policy': json.dumps([{
+                'policy': [{
                     'Rules': [{
                         'Resource': ['collection/test-collection'],
                         'Permission': ['aoss:ReadDocument', 'aoss:WriteDocument'],
                         'ResourceType': 'collection'
                     }],
                     'Principal': ['arn:aws:iam::123456789012:role/SpecificKBRole']
-                }])
+                }]
             }
         }
 
         # Run check
         kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
-        kb_checks.check_vector_store_access_control()
+        findings = kb_checks.check_vector_store_access_control()
 
         # Verify no CRITICAL findings (policy is restrictive)
-        critical_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.CRITICAL]
+        critical_findings = [f for f in findings if f.get('risk_level') == RiskLevel.CRITICAL]
         assert len(critical_findings) == 0
 
 

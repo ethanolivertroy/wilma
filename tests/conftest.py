@@ -97,6 +97,25 @@ def mock_bedrock_agent_client():
     return mock_client
 
 
+@pytest.fixture
+def mock_aoss_client():
+    """
+    Create a MagicMock for the OpenSearch Serverless (aoss) client.
+
+    Defaults to "no policies found" so tests opt in to specific policy shapes.
+    """
+    mock_client = MagicMock()
+
+    mock_client.list_security_policies.return_value = {
+        'securityPolicySummaries': []
+    }
+    mock_client.list_access_policies.return_value = {
+        'accessPolicySummaries': []
+    }
+
+    return mock_client
+
+
 # ============================================================================
 # Moto Fixtures for fully-supported services
 # ============================================================================
@@ -134,11 +153,11 @@ def moto_ec2(aws_credentials):
 # ============================================================================
 
 @pytest.fixture
-def mock_checker(aws_credentials, mock_bedrock_client, mock_bedrock_agent_client):
+def mock_checker(aws_credentials, mock_bedrock_client, mock_bedrock_agent_client, mock_aoss_client):
     """
     Create a BedrockSecurityChecker with hybrid mocking.
 
-    - Bedrock clients use MagicMock (incomplete Moto support)
+    - Bedrock and OpenSearch Serverless clients use MagicMock (incomplete Moto support)
     - S3, IAM, EC2, Logs use Moto (full support)
 
     This is the main fixture for integration tests.
@@ -154,7 +173,7 @@ def mock_checker(aws_credentials, mock_bedrock_client, mock_bedrock_agent_client
         checker.bedrock = mock_bedrock_client
         checker.bedrock_agent = mock_bedrock_agent_client
 
-        # Mock session.client to return our mocked bedrock-agent client
+        # Mock session.client to return our mocked Bedrock/aoss clients
         original_session_client = checker.session.client
 
         def mock_session_client(service_name, **kwargs):
@@ -162,6 +181,8 @@ def mock_checker(aws_credentials, mock_bedrock_client, mock_bedrock_agent_client
                 return mock_bedrock_agent_client
             elif service_name == 'bedrock':
                 return mock_bedrock_client
+            elif service_name == 'opensearchserverless':
+                return mock_aoss_client
             else:
                 # For other services (s3, iam, etc.), use Moto
                 return original_session_client(service_name, **kwargs)
