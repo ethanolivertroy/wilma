@@ -12,7 +12,7 @@ the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
 """
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 __author__ = "Ethan Troy"
 __license__ = "GPL-3.0-or-later"
 
