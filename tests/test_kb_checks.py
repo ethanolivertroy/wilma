@@ -106,7 +106,7 @@ class TestKBVectorStoreEncryption:
         storage_config = {
             'type': 'OPENSEARCH_SERVERLESS',
             'opensearchServerlessConfiguration': {
-                'collectionArn': 'arn:aws:aoss:us-east-1:123456789012:collection/test-collection',
+                'collectionArn': 'arn:aws:aoss:us-east-1:123456789012:collection/abc123collectionid',
                 'fieldMapping': {
                     'vectorField': 'bedrock-knowledge-base-default-vector',
                     'textField': 'AMAZON_BEDROCK_TEXT_CHUNK',
@@ -124,6 +124,9 @@ class TestKBVectorStoreEncryption:
         # Mock OpenSearch Serverless to return an AWS-owned-key encryption policy
         mock_aoss_client.list_security_policies.return_value = {
             'securityPolicySummaries': [{'name': 'test-collection-encryption'}]
+        }
+        mock_aoss_client.batch_get_collection.return_value = {
+            'collectionDetails': [{'id': 'abc123collectionid', 'name': 'test-collection'}]
         }
         mock_aoss_client.get_security_policy.return_value = {
             'securityPolicyDetail': {
@@ -147,6 +150,11 @@ class TestKBVectorStoreEncryption:
         # Verify HIGH finding for AWS-owned key (not customer-managed)
         high_findings = [f for f in findings if f.get('risk_level') == RiskLevel.HIGH]
         assert len(high_findings) > 0
+        mock_aoss_client.batch_get_collection.assert_called_once_with(ids=['abc123collectionid'])
+        mock_aoss_client.list_security_policies.assert_called_once_with(
+            type='encryption',
+            resource=['collection/test-collection'],
+        )
 
     def test_encrypted_opensearch_collection(self, mock_checker, mock_aoss_client):
         """Test that encrypted OpenSearch collections pass validation."""
@@ -180,10 +188,10 @@ class TestKBVectorStoreEncryption:
                     'Rules': [
                         {
                             'Resource': ['collection/test-collection'],
-                            'ResourceType': 'collection',
-                            'KmsARN': 'arn:aws:kms:us-east-1:123456789012:key/12345678-1234-1234-1234-123456789012'
+                            'ResourceType': 'collection'
                         }
-                    ]
+                    ],
+                    'KmsARN': 'arn:aws:kms:us-east-1:123456789012:key/12345678-1234-1234-1234-123456789012'
                 }
             }
         }
@@ -195,6 +203,28 @@ class TestKBVectorStoreEncryption:
         # Verify no HIGH findings (collection uses customer-managed key)
         high_findings = [f for f in findings if f.get('risk_level') == RiskLevel.HIGH]
         assert len(high_findings) == 0
+
+    def test_security_policy_lookup_paginates(self, mock_checker, mock_aoss_client):
+        """Test that OpenSearch Serverless policy lookup follows nextToken."""
+        mock_aoss_client.list_security_policies.side_effect = [
+            {
+                'securityPolicySummaries': [{'name': 'first'}],
+                'nextToken': 'page-2',
+            },
+            {
+                'securityPolicySummaries': [{'name': 'second'}],
+            },
+        ]
+        mock_aoss_client.get_security_policy.side_effect = [
+            {'securityPolicyDetail': {'policy': {'AWSOwnedKey': True}}},
+            {'securityPolicyDetail': {'policy': {'AWSOwnedKey': False, 'KmsARN': 'key-arn'}}},
+        ]
+
+        kb_checks = KnowledgeBaseSecurityChecks(mock_checker)
+        policies = kb_checks._get_aoss_security_policies('test-collection', 'encryption')
+
+        assert len(policies) == 2
+        assert mock_aoss_client.list_security_policies.call_args_list[1].kwargs['nextToken'] == 'page-2'
 
 
 class TestKBChunkingConfiguration:

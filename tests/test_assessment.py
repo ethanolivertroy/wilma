@@ -27,6 +27,21 @@ def test_normalize_legacy_finding_maps_to_bsi_and_frameworks():
     assert normalized["issue"] == "AI model usage is not being logged"
 
 
+def test_normalize_serialized_legacy_risk_level():
+    finding = {
+        "risk_level": "RiskLevel.HIGH",
+        "category": "Audit & Compliance",
+        "resource": "Model Invocation Logging",
+        "issue": "AI model usage is not being logged",
+        "recommendation": "Enable model invocation logging",
+    }
+
+    normalized = normalize_finding(finding, 1)
+
+    assert normalized["severity"] == "HIGH"
+    assert normalized["risk_score"] == RiskLevel.HIGH.score
+
+
 def test_normalize_rich_finding_preserves_evidence_details():
     finding = {
         "risk_level": RiskLevel.CRITICAL,
