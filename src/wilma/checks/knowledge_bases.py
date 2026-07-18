@@ -26,7 +26,7 @@ Threat Coverage:
 
 import json
 import re
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from botocore.exceptions import ClientError
 
@@ -114,10 +114,14 @@ class KnowledgeBaseSecurityChecks:
         Security policies cover encryption ('encryption') and network access ('network').
         """
         policies = []
-        summaries = self.aoss.list_security_policies(
+        summaries = paginate_aws_results(
+            self.aoss.list_security_policies,
+            'securityPolicySummaries',
+            token_key='nextToken',  # noqa: S106
+            token_param='nextToken',  # noqa: S106
             type=policy_type,
-            resource=[f'collection/{collection_name}']
-        ).get('securityPolicySummaries', [])
+            resource=[f'collection/{collection_name}'],
+        )
         for summary in summaries:
             detail = self.aoss.get_security_policy(name=summary['name'], type=policy_type)
             policies.append(_parse_policy_document(detail.get('securityPolicyDetail', {}).get('policy')))
@@ -126,14 +130,27 @@ class KnowledgeBaseSecurityChecks:
     def _get_aoss_data_access_policies(self, collection_name: str) -> List[Dict]:
         """Return parsed OpenSearch Serverless data access policies covering a collection."""
         policies = []
-        summaries = self.aoss.list_access_policies(
+        summaries = paginate_aws_results(
+            self.aoss.list_access_policies,
+            'accessPolicySummaries',
+            token_key='nextToken',  # noqa: S106
+            token_param='nextToken',  # noqa: S106
             type='data',
-            resource=[f'collection/{collection_name}']
-        ).get('accessPolicySummaries', [])
+            resource=[f'collection/{collection_name}'],
+        )
         for summary in summaries:
             detail = self.aoss.get_access_policy(name=summary['name'], type='data')
             policies.append(_parse_policy_document(detail.get('accessPolicyDetail', {}).get('policy')))
         return policies
+
+    def _get_aoss_collection_name(self, collection_arn: str) -> Optional[str]:
+        """Resolve the collection name from a Bedrock storage configuration ARN."""
+        if '/' not in collection_arn:
+            return None
+        collection_id = collection_arn.rsplit('/', 1)[-1]
+        response = self.aoss.batch_get_collection(ids=[collection_id])
+        details = response.get('collectionDetails', [])
+        return details[0].get('name') if details else None
 
     def _check_aoss_network_policies(self, kb_id: str, kb_name: str, collection_name: str) -> List[Dict]:
         """Flag OpenSearch Serverless collections that are publicly reachable or unprotected."""
@@ -676,13 +693,12 @@ class KnowledgeBaseSecurityChecks:
                         # OpenSearch Serverless - check collection ARN
                         oss_config = storage_config.get('opensearchServerlessConfiguration', {})
                         collection_arn = oss_config.get('collectionArn', '')
-                        collection_name = collection_arn.split('/')[-1] if '/' in collection_arn else None
+                        collection_name = self._get_aoss_collection_name(collection_arn)
 
                         if collection_name:
                             for policy_json in self._get_aoss_security_policies(collection_name, 'encryption'):
                                 uses_aws_owned_key = policy_json.get('AWSOwnedKey', False)
-                                rules = policy_json.get('Rules', [])
-                                has_customer_key = any(rule.get('KmsARN') for rule in rules)
+                                has_customer_key = bool(policy_json.get('KmsARN'))
 
                                 if uses_aws_owned_key or not has_customer_key:
                                     findings.append({
@@ -850,7 +866,7 @@ class KnowledgeBaseSecurityChecks:
                         # OpenSearch Serverless - check network and data access policies
                         oss_config = storage_config.get('opensearchServerlessConfiguration', {})
                         collection_arn = oss_config.get('collectionArn', '')
-                        collection_name = collection_arn.split('/')[-1] if '/' in collection_arn else None
+                        collection_name = self._get_aoss_collection_name(collection_arn)
 
                         if collection_name:
                             try:

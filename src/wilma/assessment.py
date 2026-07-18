@@ -273,8 +273,10 @@ def risk_level_label(value: Any) -> str:
     """Return a stable severity label from RiskLevel enums or severity strings."""
     if isinstance(value, RiskLevel):
         return value.label
-    if isinstance(value, str) and value.upper() in SEVERITY_PENALTIES:
-        return value.upper()
+    if isinstance(value, str):
+        label = value.rsplit(".", 1)[-1].upper()
+        if label in SEVERITY_PENALTIES:
+            return label
     return "INFO"
 
 

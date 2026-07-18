@@ -112,6 +112,9 @@ def mock_aoss_client():
     mock_client.list_access_policies.return_value = {
         'accessPolicySummaries': []
     }
+    mock_client.batch_get_collection.return_value = {
+        'collectionDetails': [{'id': 'test-collection', 'name': 'test-collection'}]
+    }
 
     return mock_client
 
