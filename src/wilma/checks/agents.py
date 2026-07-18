@@ -29,7 +29,13 @@ from typing import Dict, List
 
 from botocore.exceptions import ClientError
 
-from wilma.utils import PII_PATTERNS, PROMPT_INJECTION_PATTERNS, handle_aws_error, paginate_aws_results
+from wilma.utils import (
+    PII_PATTERNS,
+    PROMPT_INJECTION_PATTERNS,
+    handle_aws_error,
+    paginate_aws_results,
+    statement_actions_resources,
+)
 
 from ..enums import RiskLevel
 
@@ -609,14 +615,7 @@ class AgentSecurityChecks:
                             if statement.get('Effect') != 'Allow':
                                 continue
 
-                            actions = statement.get('Action', [])
-                            resources = statement.get('Resource', [])
-
-                            # Convert to list if single string
-                            if isinstance(actions, str):
-                                actions = [actions]
-                            if isinstance(resources, str):
-                                resources = [resources]
+                            actions, resources = statement_actions_resources(statement)
 
                             # Check for wildcard actions with wildcard resources
                             has_wildcard_action = any(

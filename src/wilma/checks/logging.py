@@ -30,6 +30,21 @@ class LoggingSecurityChecks:
         """Initialize with parent checker for AWS client access."""
         self.checker = checker
 
+    def _get_invocation_logging_config(self) -> Dict:
+        """Return the Bedrock model invocation logging configuration."""
+        response = self.checker.bedrock.get_model_invocation_logging_configuration()
+        return response.get('loggingConfig', {})
+
+    def _get_log_group(self, log_group_name: str) -> Dict:
+        """Return the CloudWatch log group matching a name exactly, or an empty dict."""
+        log_groups = self.checker.cloudwatch.describe_log_groups(
+            logGroupNamePrefix=log_group_name
+        ).get('logGroups', [])
+        for log_group in log_groups:
+            if log_group.get('logGroupName') == log_group_name:
+                return log_group
+        return {}
+
     def check_logging_monitoring(self) -> List[Dict]:
         """Enhanced logging check with beginner-friendly explanations."""
         if self.checker.mode == SecurityMode.LEARN:
@@ -42,9 +57,9 @@ class LoggingSecurityChecks:
 
         try:
             # Check model invocation logging
-            logging_config = self.checker.bedrock.get_model_invocation_logging_configuration()
+            config = self._get_invocation_logging_config()
 
-            if not logging_config.get('loggingConfig'):
+            if not config:
                 self.checker.add_finding(
                     risk_level=RiskLevel.HIGH,
                     category="Audit & Compliance",
@@ -59,7 +74,6 @@ class LoggingSecurityChecks:
                 self.checker.add_good_practice("Audit & Compliance", "Model invocation logging is enabled")
 
                 # Check if both CloudWatch and S3 logging are enabled
-                config = logging_config['loggingConfig']
                 if not config.get('cloudWatchConfig', {}).get('logGroupName'):
                     self.checker.add_finding(
                         risk_level=RiskLevel.MEDIUM,
@@ -90,21 +104,14 @@ class LoggingSecurityChecks:
         print("[CHECK] Checking CloudWatch log retention for Bedrock invocations...")
 
         try:
-            logging_config = self.checker.bedrock.get_model_invocation_logging_configuration()
-            cloudwatch_config = logging_config.get('loggingConfig', {}).get('cloudWatchConfig', {})
+            cloudwatch_config = self._get_invocation_logging_config().get('cloudWatchConfig', {})
             log_group_name = cloudwatch_config.get('logGroupName')
 
             if not log_group_name:
                 return self.checker.findings
 
-            log_groups = self.checker.cloudwatch.describe_log_groups(
-                logGroupNamePrefix=log_group_name
-            ).get('logGroups', [])
-
-            for log_group in log_groups:
-                if log_group.get('logGroupName') != log_group_name:
-                    continue
-
+            log_group = self._get_log_group(log_group_name)
+            if log_group:
                 retention_days = log_group.get('retentionInDays')
                 if retention_days is not None and retention_days < self.checker.config.log_retention_days:
                     self.checker.add_finding(
@@ -133,25 +140,20 @@ class LoggingSecurityChecks:
         print("[CHECK] Checking Bedrock log encryption...")
 
         try:
-            logging_config = self.checker.bedrock.get_model_invocation_logging_configuration()
-            config = logging_config.get('loggingConfig', {})
+            config = self._get_invocation_logging_config()
 
-            cloudwatch_config = config.get('cloudWatchConfig', {})
-            log_group_name = cloudwatch_config.get('logGroupName')
+            log_group_name = config.get('cloudWatchConfig', {}).get('logGroupName')
             if log_group_name:
-                log_groups = self.checker.cloudwatch.describe_log_groups(
-                    logGroupNamePrefix=log_group_name
-                ).get('logGroups', [])
-                for log_group in log_groups:
-                    if log_group.get('logGroupName') == log_group_name and not log_group.get('kmsKeyId'):
-                        self.checker.add_finding(
-                            risk_level=RiskLevel.HIGH,
-                            category="Audit & Compliance",
-                            resource=f"CloudWatch Log Group: {log_group_name}",
-                            issue="Bedrock CloudWatch logs are not encrypted with a customer-managed KMS key",
-                            recommendation="Associate a customer-managed KMS key with the log group",
-                            technical_details="CloudWatch log group has no kmsKeyId"
-                        )
+                log_group = self._get_log_group(log_group_name)
+                if log_group and not log_group.get('kmsKeyId'):
+                    self.checker.add_finding(
+                        risk_level=RiskLevel.HIGH,
+                        category="Audit & Compliance",
+                        resource=f"CloudWatch Log Group: {log_group_name}",
+                        issue="Bedrock CloudWatch logs are not encrypted with a customer-managed KMS key",
+                        recommendation="Associate a customer-managed KMS key with the log group",
+                        technical_details="CloudWatch log group has no kmsKeyId"
+                    )
 
             s3_config = config.get('s3Config', {})
             bucket_name = s3_config.get('bucketName')

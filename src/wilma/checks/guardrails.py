@@ -174,6 +174,8 @@ class GuardrailSecurityChecks:
                                 'location': f'Guardrail: {guardrail_name} (v{guardrail_version})',
                                 'resource': f'arn:aws:bedrock:*:*:guardrail/{guardrail_id}',
                                 'remediation': (
+                                    # "Update ... Set ..." is console guidance, not SQL;
+                                    # S608/B608 misfire on the wording.
                                     f'Update guardrail filter strength to HIGH:\n'  # noqa: S608  # nosec B608
                                     f'1. Navigate to AWS Bedrock console\n'
                                     f'2. Open Guardrails → "{guardrail_name}"\n'

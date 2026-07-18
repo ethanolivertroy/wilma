@@ -28,7 +28,7 @@ from wilma.checks import (
     NetworkSecurityChecks,
     TaggingSecurityChecks,
 )
-from wilma.config import WilmaConfig
+from wilma.config import AVAILABLE_CHECKS, WilmaConfig
 from wilma.enums import RiskLevel, SecurityMode
 from wilma.exceptions import WilmaCredentialsError
 
@@ -90,7 +90,6 @@ class BedrockSecurityChecker:
     def __init__(self, profile_name: str = None, region: str = None,
                  mode: SecurityMode = SecurityMode.STANDARD,
                  config: WilmaConfig = None,
-                 presentation_mode: str = "standard",
                  exit_on_error: bool = True):
         """
         Initialize checker with AWS credentials and check modules.
@@ -105,7 +104,6 @@ class BedrockSecurityChecker:
         """
         self.mode = mode
         self.config = config if config is not None else WilmaConfig()
-        self.presentation_mode = presentation_mode
 
         session_params = {}
         if profile_name:
@@ -238,9 +236,6 @@ class BedrockSecurityChecker:
 
     def _print_banner(self):
         """Display ASCII art banner with branding."""
-        if self.presentation_mode == "yabba_dabba_doo":
-            print("Yabba Dabba Doo! Wilma is rolling over the Bedrock...")
-
         banner = """
     ██╗    ██╗██╗██╗     ███╗   ███╗ █████╗
     ██║    ██║██║██║     ████╗ ████║██╔══██╗
@@ -270,28 +265,39 @@ class BedrockSecurityChecker:
                 self.findings.append(finding)
                 existing.add(key)
 
-    def _mark_assessed(self, check_name: str) -> None:
-        """Record which Bedrock Security Indicators had automated coverage."""
-        self.assessed_indicators.update(self.CHECK_INDICATORS.get(check_name, set()))
+    def _run_genai_checks(self) -> None:
+        """Run the GenAI threat checks (OWASP LLM Top 10)."""
+        self.genai_checks.check_prompt_injection_vulnerabilities()
+        self.genai_checks.check_data_privacy_compliance()
+        self.genai_checks.check_cost_anomaly_detection()
 
-    def _should_run_check(self, check_name: str) -> bool:
-        """Return whether a configured check module should run."""
-        return check_name in self.config.enabled_checks
+    def _check_runners(self) -> dict:
+        """
+        Map check-module names to runner callables.
+
+        Rich modules return module-local findings that must be merged into
+        checker.findings; legacy modules report through add_finding() directly.
+        """
+        return {
+            "agents": lambda: self._merge_module_findings(self.agent_checks.run_all_checks()),
+            "guardrails": lambda: self._merge_module_findings(self.guardrail_checks.run_all_checks()),
+            "knowledge_bases": lambda: self._merge_module_findings(self.kb_checks.run_all_checks()),
+            "fine_tuning": lambda: self._merge_module_findings(self.fine_tuning_checks.run_all_checks()),
+            "iam": self.iam_checks.check_model_access_audit,
+            "logging": self.logging_checks.check_logging_monitoring,
+            "network": self.network_checks.check_vpc_endpoints,
+            "tagging": self.tagging_checks.check_resource_tagging,
+            "genai": self._run_genai_checks,
+        }
 
     def run_all_checks(self) -> list[dict]:
         """
-        Execute all security checks in order.
+        Execute all enabled security checks in AVAILABLE_CHECKS order.
 
-        Runs comprehensive security audit covering:
-        1. Agents - 10 checks for autonomous AI systems (OWASP LLM08, LLM01)
-        2. Guardrails - 11 checks for content filtering & hallucination prevention (OWASP LLM01, LLM02, LLM09)
-        3. Knowledge Bases - 12 checks for RAG security (OWASP LLM03, LLM06, LLM07)
-        4. Fine-Tuning - 11 checks for training data security (OWASP LLM03, LLM04, LLM06)
-        5. IAM & Access Control - Who can use Bedrock and how
-        6. Logging & Monitoring - Audit trails and anomaly detection
-        7. Network Security - VPC endpoints and private connectivity
-        8. Resource Tagging - Organization and compliance tracking
-        9. GenAI Threats - OWASP LLM01 (prompt injection), PII leaks, cost abuse
+        Order matters: agents, guardrails, knowledge bases, and fine-tuning run
+        first because they provide the richest GenAI-specific context, followed
+        by the foundational IAM, logging, network, tagging, and GenAI threat
+        checks.
 
         Returns:
             List of finding dictionaries with risk levels and remediation steps
@@ -302,51 +308,10 @@ class BedrockSecurityChecker:
         print(f"Account: {self.account_id} | Region: {self.region}")
         print("=" * 60)
 
-        # Critical: Autonomous AI agents (OWASP LLM08: Excessive Agency)
-        if self._should_run_check("agents"):
-            self._merge_module_findings(self.agent_checks.run_all_checks())
-            self._mark_assessed("agents")
-
-        # Critical: Content filtering and hallucination prevention
-        if self._should_run_check("guardrails"):
-            self._merge_module_findings(self.guardrail_checks.run_all_checks())
-            self._mark_assessed("guardrails")
-
-        # Critical: RAG-specific security (data poisoning, PII, prompt injection)
-        if self._should_run_check("knowledge_bases"):
-            self._merge_module_findings(self.kb_checks.run_all_checks())
-            self._mark_assessed("knowledge_bases")
-
-        # Critical: Model fine-tuning security (training data protection, OWASP LLM03, LLM04, LLM06)
-        if self._should_run_check("fine_tuning"):
-            self._merge_module_findings(self.fine_tuning_checks.run_all_checks())
-            self._mark_assessed("fine_tuning")
-
-        # Foundation: Identity and access control
-        if self._should_run_check("iam"):
-            self.iam_checks.check_model_access_audit()
-            self._mark_assessed("iam")
-
-        # Visibility: Logging and monitoring
-        if self._should_run_check("logging"):
-            self.logging_checks.check_logging_monitoring()
-            self._mark_assessed("logging")
-
-        # Network: Private connectivity
-        if self._should_run_check("network"):
-            self.network_checks.check_vpc_endpoints()
-            self._mark_assessed("network")
-
-        # Organization: Resource management
-        if self._should_run_check("tagging"):
-            self.tagging_checks.check_resource_tagging()
-            self._mark_assessed("tagging")
-
-        # GenAI threats: OWASP LLM Top 10
-        if self._should_run_check("genai"):
-            self.genai_checks.check_prompt_injection_vulnerabilities()
-            self.genai_checks.check_data_privacy_compliance()
-            self.genai_checks.check_cost_anomaly_detection()
-            self._mark_assessed("genai")
+        runners = self._check_runners()
+        for check_name in AVAILABLE_CHECKS:
+            if check_name in self.config.enabled_checks:
+                runners[check_name]()
+                self.assessed_indicators.update(self.CHECK_INDICATORS[check_name])
 
         return self.findings

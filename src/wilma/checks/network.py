@@ -54,8 +54,8 @@ class NetworkSecurityChecks:
                 endpoint_id = endpoint.get('VpcEndpointId', '')
                 state = endpoint.get('State', '')
 
-                # Ignore deleted/failed endpoints, but include pending endpoints for local tests
-                # and newly-created resources that still need configuration validation.
+                # Ignore endpoints in terminal states. Pending endpoints are still
+                # validated because they will serve traffic once available.
                 if state in ['deleted', 'failed', 'deleting']:
                     continue
 

@@ -18,7 +18,7 @@ from typing import Dict, List
 from botocore.exceptions import ClientError
 
 from wilma.enums import RiskLevel, SecurityMode
-from wilma.utils import handle_aws_error, paginate_iam_results
+from wilma.utils import handle_aws_error, paginate_iam_results, statement_actions_resources
 
 
 class IAMSecurityChecks:
@@ -27,6 +27,15 @@ class IAMSecurityChecks:
     def __init__(self, checker):
         """Initialize with parent checker for AWS client access."""
         self.checker = checker
+        self._roles_cache = None
+
+    def _list_roles(self) -> List[Dict]:
+        """List IAM roles once and reuse across the role-based checks."""
+        if self._roles_cache is None:
+            self._roles_cache = list(
+                paginate_iam_results(self.checker.iam.list_roles, 'Roles', MaxItems=100)
+            )
+        return self._roles_cache
 
     def check_model_access_audit(self) -> List[Dict]:
         """Enhanced model access audit with beginner-friendly explanations."""
@@ -47,7 +56,6 @@ class IAMSecurityChecks:
             else:
                 for model in custom_models.get('modelSummaries', []):
                     model_name = model['modelName']
-                    model['modelArn']
 
                     # Check if model has proper access controls
                     try:
@@ -101,9 +109,7 @@ class IAMSecurityChecks:
 
                     for statement in policy_doc.get('Statement', []):
                         if statement.get('Effect') == 'Allow':
-                            actions = statement.get('Action', [])
-                            if isinstance(actions, str):
-                                actions = [actions]
+                            actions, _ = statement_actions_resources(statement)
 
                             # Check for dangerous Bedrock permissions
                             if any('bedrock:*' in action or action == '*' for action in actions):
@@ -141,7 +147,7 @@ class IAMSecurityChecks:
             risky_roles = []
 
             # List all IAM roles
-            for role in paginate_iam_results(self.checker.iam.list_roles, 'Roles', MaxItems=100):
+            for role in self._list_roles():
                 role_name = role['RoleName']
 
                 try:
@@ -189,9 +195,7 @@ class IAMSecurityChecks:
                                 # Check for wildcard actions
                                 for statement in policy_doc.get('Statement', []):
                                     if statement.get('Effect') == 'Allow':
-                                        actions = statement.get('Action', [])
-                                        if isinstance(actions, str):
-                                            actions = [actions]
+                                        actions, _ = statement_actions_resources(statement)
 
                                         if any('bedrock:*' in action or action == '*' for action in actions):
                                             self.checker.add_finding(
@@ -236,7 +240,7 @@ class IAMSecurityChecks:
         print("[CHECK] Checking IAM roles for cross-account access...")
 
         try:
-            for role in paginate_iam_results(self.checker.iam.list_roles, 'Roles', MaxItems=100):
+            for role in self._list_roles():
                 role_name = role['RoleName']
                 trust_policy = role.get('AssumeRolePolicyDocument', {})
                 statements = trust_policy.get('Statement', [])
@@ -280,7 +284,7 @@ class IAMSecurityChecks:
         print("[CHECK] Checking IAM role session durations...")
 
         try:
-            for role in paginate_iam_results(self.checker.iam.list_roles, 'Roles', MaxItems=100):
+            for role in self._list_roles():
                 role_name = role['RoleName']
                 max_session_duration = role.get('MaxSessionDuration', 3600)
 

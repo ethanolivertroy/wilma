@@ -107,14 +107,11 @@ Examples:
 
         # Override config with CLI arguments if provided
         if args.checks:
-            check_list = [c.strip() for c in args.checks.split(',')]
-            config.config['checks']['enabled'] = check_list
-            config._validate_config()
+            config.set_enabled_checks([c.strip() for c in args.checks.split(',')])
             print(f"[INFO] Running selective checks: {', '.join(config.enabled_checks)}")
 
         if args.min_risk:
-            config.config['output']['min_risk_level'] = args.min_risk
-            config._validate_config()
+            config.set_min_risk_level(args.min_risk)
             print(f"[INFO] Filtering findings: minimum risk level = {args.min_risk}")
 
         # Handle --show-config flag
@@ -142,7 +139,6 @@ Examples:
                 region=args.region,
                 mode=mode,
                 config=config,
-                presentation_mode=presentation_mode,
             )
 
             # Run all checks

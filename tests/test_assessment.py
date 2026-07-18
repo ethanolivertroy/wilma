@@ -51,23 +51,25 @@ def test_normalize_rich_finding_preserves_evidence_details():
 
 
 def test_assessment_builder_separates_posture_score_and_manual_evidence():
+    findings = [
+        {
+            "risk_level": RiskLevel.HIGH,
+            "category": "Network Security",
+            "resource": "VPC Endpoint: bedrock-runtime",
+            "issue": "AI model invocation traffic goes over the public internet",
+            "recommendation": "Create a VPC endpoint for private model invocations",
+        }
+    ]
     checker = SimpleNamespace(
         account_id="123456789012",
         region="us-east-1",
         mode=SecurityMode.STANDARD,
-        presentation_mode="standard",
-        findings=[
-            {
-                "risk_level": RiskLevel.HIGH,
-                "category": "Network Security",
-                "resource": "VPC Endpoint: bedrock-runtime",
-                "issue": "AI model invocation traffic goes over the public internet",
-                "recommendation": "Create a VPC endpoint for private model invocations",
-            }
-        ],
+        findings=findings,
+        filtered_findings=lambda: findings,
         good_practices=[],
         available_models=[],
         assessed_indicators={"network_runtime_isolation"},
+        visibility_gaps=[],
     )
 
     assessment = AssessmentBuilder(checker).build()
@@ -103,12 +105,12 @@ def test_assessment_builder_uses_filtered_findings_when_available():
         account_id="123456789012",
         region="us-east-1",
         mode=SecurityMode.STANDARD,
-        presentation_mode="standard",
         findings=all_findings,
         filtered_findings=lambda: [all_findings[1]],
         good_practices=[],
         available_models=[],
         assessed_indicators={"monitoring_logging_detection", "governance_inventory"},
+        visibility_gaps=[],
     )
 
     assessment = AssessmentBuilder(checker).build()
@@ -124,8 +126,8 @@ def test_visibility_gaps_reduce_assessment_confidence():
         account_id="123456789012",
         region="us-east-1",
         mode=SecurityMode.STANDARD,
-        presentation_mode="standard",
         findings=[],
+        filtered_findings=lambda: [],
         good_practices=[],
         available_models=[],
         assessed_indicators={

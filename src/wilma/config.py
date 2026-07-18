@@ -18,6 +18,21 @@ import yaml
 
 from wilma.enums import RiskLevel
 
+# Canonical ordered list of check modules. Order matters for contextual checks
+# (agents and guardrails inform later checks); the checker runs modules in
+# this order and validation accepts only these names.
+AVAILABLE_CHECKS = (
+    'agents',
+    'guardrails',
+    'knowledge_bases',
+    'fine_tuning',
+    'iam',
+    'logging',
+    'network',
+    'tagging',
+    'genai',
+)
+
 
 class WilmaConfig:
     """Configuration manager for Wilma posture assessment checks."""
@@ -34,17 +49,7 @@ class WilmaConfig:
             'min_risk_level': 'LOW'
         },
         'checks': {
-            'enabled': [
-                'agents',
-                'guardrails',
-                'knowledge_bases',
-                'fine_tuning',
-                'iam',
-                'logging',
-                'network',
-                'tagging',
-                'genai',
-            ]
+            'enabled': list(AVAILABLE_CHECKS)
         }
     }
 
@@ -151,27 +156,26 @@ class WilmaConfig:
             self.config['output']['min_risk_level'] = min_risk
 
         # Validate enabled checks
-        valid_checks = [
-            'agents',
-            'guardrails',
-            'knowledge_bases',
-            'fine_tuning',
-            'iam',
-            'logging',
-            'network',
-            'tagging',
-            'genai',
-        ]
         enabled = self.config['checks'].get('enabled', [])
         if not isinstance(enabled, list):
             print("[WARN] Invalid 'enabled' checks configuration, using all checks")
-            self.config['checks']['enabled'] = valid_checks
+            self.config['checks']['enabled'] = list(AVAILABLE_CHECKS)
         else:
             # Filter out invalid check names
-            invalid_checks = [c for c in enabled if c not in valid_checks]
+            invalid_checks = [c for c in enabled if c not in AVAILABLE_CHECKS]
             if invalid_checks:
                 print(f"[WARN] Unknown checks ignored: {', '.join(invalid_checks)}")
-            self.config['checks']['enabled'] = [c for c in enabled if c in valid_checks]
+            self.config['checks']['enabled'] = [c for c in enabled if c in AVAILABLE_CHECKS]
+
+    def set_enabled_checks(self, check_names: list) -> None:
+        """Replace the enabled check modules, dropping unknown names with a warning."""
+        self.config['checks']['enabled'] = check_names
+        self._validate_config()
+
+    def set_min_risk_level(self, level: str) -> None:
+        """Set the minimum risk level filter, falling back to LOW if invalid."""
+        self.config['output']['min_risk_level'] = level
+        self._validate_config()
 
     # ========================================================================
     # Configuration Accessors

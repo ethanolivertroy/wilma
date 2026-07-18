@@ -11,7 +11,6 @@ class FakeChecker:
         self.account_id = "123456789012"
         self.region = "us-east-1"
         self.mode = kwargs["mode"]
-        self.presentation_mode = "standard"
         self.findings = [
             {
                 "risk_level": RiskLevel.HIGH,
@@ -27,6 +26,9 @@ class FakeChecker:
         self.visibility_gaps = []
 
     def run_all_checks(self):
+        return self.findings
+
+    def filtered_findings(self):
         return self.findings
 
 
