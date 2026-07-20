@@ -22,5 +22,5 @@ build>=1.4.4
 twine>=6.2.0
 
 # Development utilities
-ipython>=8.18.1  # Enhanced Python shell
+ipython>=8.39.0  # Enhanced Python shell
 pre-commit>=4.3.0  # Git pre-commit hooks
