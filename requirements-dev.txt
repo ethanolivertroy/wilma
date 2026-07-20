@@ -3,7 +3,7 @@ pytest>=8.0.0
 pytest-cov>=4.1.0
 pytest-mock>=3.15.1
 pytest-xdist>=3.8.0  # Parallel test execution
-moto[bedrock,s3,iam,ec2,logs]>=5.0.0  # Realistic AWS service mocking
+moto[bedrock,s3,iam,ec2,logs]>=5.2.2  # Realistic AWS service mocking
 
 # Code quality and linting
 ruff>=0.15.13
