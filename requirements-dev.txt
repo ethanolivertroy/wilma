@@ -18,7 +18,7 @@ boto3-stubs[bedrock]>=1.43.51
 types-PyYAML>=6.0.0
 
 # Build and packaging
-build>=1.5.0
+build>=1.4.4
 twine>=6.2.0
 
 # Development utilities
