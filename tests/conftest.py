@@ -215,18 +215,17 @@ def checker_with_moto(mock_checker):
 @pytest.fixture
 def wilma_config():
     """Create a default Wilma configuration for testing."""
-    return WilmaConfig(
-        region='us-east-1',
-        checks_enabled=[
-            'iam',
-            'genai',
-            'network',
-            'logging',
-            'tagging',
-            'knowledge_bases'
-        ],
-        min_risk_level='LOW'
-    )
+    config = WilmaConfig()
+    config.config['checks']['enabled'] = [
+        'iam',
+        'genai',
+        'network',
+        'logging',
+        'tagging',
+        'knowledge_bases',
+    ]
+    config.config['output']['min_risk_level'] = 'LOW'
+    return config
 
 
 # ============================================================================

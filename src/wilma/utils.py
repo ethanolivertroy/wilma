@@ -11,7 +11,7 @@ the Free Software Foundation, either version 3 of the License, or
 
 import re
 from collections.abc import Iterator
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List
 
 from botocore.exceptions import ClientError
 
@@ -66,7 +66,7 @@ SUSPICIOUS_UNICODE_PATTERNS = [
 # ARN PARSING UTILITIES
 # ============================================================================
 
-def parse_arn(arn: str) -> Optional[Dict[str, str]]:
+def parse_arn(arn: str) -> Dict[str, str] | None:
     """
     Parse an AWS ARN into its components.
 
@@ -134,7 +134,7 @@ def parse_arn(arn: str) -> Optional[Dict[str, str]]:
     return result
 
 
-def extract_resource_from_arn(arn: str, default: Optional[str] = None) -> Optional[str]:
+def extract_resource_from_arn(arn: str, default: str | None = None) -> str | None:
     """
     Extract the resource identifier from an ARN.
 
@@ -460,7 +460,7 @@ def normalize_boto3_tags(tags: List[Dict[str, str]]) -> Dict[str, str]:
 # PII DETECTION UTILITIES
 # ============================================================================
 
-def scan_text_for_pii(text: str, patterns: Optional[Dict[str, str]] = None) -> List[str]:
+def scan_text_for_pii(text: str, patterns: Dict[str, str] | None = None) -> List[str]:
     """
     Scan text for PII patterns.
 
