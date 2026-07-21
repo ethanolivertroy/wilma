@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wilma-sec"
-version = "0.2.1"
+version = "0.2.2"
 description = "Wilma - AWS Bedrock Security Posture Assessment"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = "GPL-3.0-or-later"
 authors = [
     {name = "Ethan Troy"},
@@ -21,7 +21,6 @@ classifiers = [
     "Topic :: Security",
     "Topic :: System :: Systems Administration",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -30,8 +29,8 @@ classifiers = [
 ]
 
 dependencies = [
-    "boto3>=1.42.97,<2.0.0",
-    "botocore>=1.42.97,<2.0.0",
+    "boto3>=1.43.51,<2.0.0",
+    "botocore>=1.43.51,<2.0.0",
     "rich>=15.0.0,<16.0.0",
     "pyyaml>=6.0.3,<7.0.0",
 ]
@@ -52,16 +51,16 @@ where = ["src"]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8.0.0",
+    "pytest>=9.1.1",
     "pytest-cov>=4.1.0",
     "pytest-mock>=3.15.1",
-    "moto>=5.0.0",
+    "moto>=5.2.2",
     "ruff>=0.15.22",
     "bandit[toml]>=1.8.6",
     "mypy>=1.19.1,<2.0.0",
     "boto3-stubs[bedrock]>=1.43.51",
-    "types-PyYAML>=6.0.0",
-    "build>=1.4.4",
+    "types-PyYAML>=6.0.12.20260518",
+    "build>=1.5.0",
     "twine>=6.2.0",
     "tomli>=2.0.0; python_version<'3.11'",  # For reading pyproject.toml in publish workflow
 ]
@@ -69,7 +68,7 @@ dev = [
 # Ruff configuration - Fast Python linter
 [tool.ruff]
 line-length = 120
-target-version = "py39"
+target-version = "py310"
 
 [tool.ruff.lint]
 select = [
@@ -112,7 +111,7 @@ skips = [
 
 # MyPy configuration - Type checking
 [tool.mypy]
-python_version = "3.9"
+python_version = "3.10"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false  # Set to true once types are added

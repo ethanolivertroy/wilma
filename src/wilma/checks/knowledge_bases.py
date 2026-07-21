@@ -26,7 +26,7 @@ Threat Coverage:
 
 import json
 import re
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 from botocore.exceptions import ClientError
 
@@ -143,7 +143,7 @@ class KnowledgeBaseSecurityChecks:
             policies.append(_parse_policy_document(detail.get('accessPolicyDetail', {}).get('policy')))
         return policies
 
-    def _get_aoss_collection_name(self, collection_arn: str) -> Optional[str]:
+    def _get_aoss_collection_name(self, collection_arn: str) -> str | None:
         """Resolve the collection name from a Bedrock storage configuration ARN."""
         if '/' not in collection_arn:
             return None

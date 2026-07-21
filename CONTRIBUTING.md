@@ -43,7 +43,7 @@ wilma --help
 
 ### CI/CD Integration
 All pull requests automatically run:
-- **Tests** across Python 3.9, 3.10, 3.11, 3.12, 3.13
+- **Tests** across Python 3.10, 3.11, 3.12, 3.13
 - **Linting** with ruff
 - **Security scanning** with bandit
 - **Type checking** with mypy

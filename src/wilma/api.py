@@ -1,7 +1,6 @@
 """Embeddable library API for Wilma scans."""
 
 from dataclasses import dataclass
-from typing import Optional
 
 from wilma.assessment import AssessmentBuilder
 from wilma.checker import BedrockSecurityChecker
@@ -23,9 +22,9 @@ class WilmaScanner:
 
     def __init__(
         self,
-        profile: Optional[str] = None,
-        region: Optional[str] = None,
-        config: Optional[WilmaConfig] = None,
+        profile: str | None = None,
+        region: str | None = None,
+        config: WilmaConfig | None = None,
         mode: SecurityMode = SecurityMode.STANDARD,
     ):
         self.profile = profile

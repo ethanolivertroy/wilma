@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.2]
+
+### Changed
+- Dropped Python 3.9 support (end-of-life October 2025); Wilma now requires Python 3.10+
+- Raised dependency floors: boto3/botocore >=1.43.51
+- Raised dev tooling floors: pytest >=9.1.1, moto >=5.2.2, types-PyYAML >=6.0.12.20260518, build >=1.5.0, ruff >=0.15.22, boto3-stubs >=1.43.51, pre-commit >=4.6.0, ipython >=8.39.0
+- Bumped CI actions: github/codeql-action to v4.37.1, actions/setup-python to v6.3.0
+
 ## [0.2.1]
 
 ### Added

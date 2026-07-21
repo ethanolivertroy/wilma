@@ -9,7 +9,7 @@ Wilma is an AWS Bedrock Security Posture Assessment tool. It evaluates AWS Bedro
 The active reboot version line is `0.2.x` beta. Historical public `1.x` packages are treated as legacy pre-reboot releases.
 
 **Key Technologies:**
-- Python 3.9+ (support for 3.9, 3.10, 3.11, 3.12, 3.13)
+- Python 3.10+ (support for 3.10, 3.11, 3.12, 3.13)
 - boto3/botocore for AWS API access
 - Rich library for terminal UI
 - pytest with moto for testing
@@ -259,7 +259,7 @@ Two critical security patterns in `utils.py`:
 ### GitHub Actions Workflows
 
 **test.yml** (runs on push/PR):
-- Tests all Python versions (3.9-3.13)
+- Tests all Python versions (3.10-3.13)
 - Runs: ruff, bandit, mypy, pytest with coverage
 - Uploads coverage reports (from Python 3.11 only)
 

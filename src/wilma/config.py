@@ -12,7 +12,7 @@ the Free Software Foundation, either version 3 of the License, or
 import copy
 import os
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import yaml
 
@@ -53,7 +53,7 @@ class WilmaConfig:
         }
     }
 
-    def __init__(self, config_path: Optional[str] = None):
+    def __init__(self, config_path: str | None = None):
         """
         Initialize Wilma configuration.
 
@@ -63,7 +63,7 @@ class WilmaConfig:
         self.config = copy.deepcopy(self.DEFAULT_CONFIG)
         self._load_config(config_path)
 
-    def _load_config(self, config_path: Optional[str] = None) -> None:
+    def _load_config(self, config_path: str | None = None) -> None:
         """
         Load configuration from file, with fallbacks.
 
@@ -273,7 +273,7 @@ class WilmaConfig:
         print(f"  Enabled Checks: {', '.join(self.enabled_checks)}")
         print()
 
-    def save_default_config(self, output_path: Optional[str] = None) -> str:
+    def save_default_config(self, output_path: str | None = None) -> str:
         """
         Save default configuration to a file.
 

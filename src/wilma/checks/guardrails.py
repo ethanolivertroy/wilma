@@ -26,7 +26,7 @@ MITRE ATLAS: AML.T0051 (LLM Prompt Injection), AML.T0048 (Evade ML Model)
 Compliance: SOC 2, ISO 27001, GDPR Art. 32, HIPAA, PCI-DSS
 """
 
-from typing import Dict, List, Union
+from typing import Dict, List
 
 from botocore.exceptions import ClientError
 
@@ -48,7 +48,7 @@ class GuardrailSecurityChecks:
         self.bedrock = checker.bedrock
         self.findings = []
 
-    def _record_visibility_gap(self, operation: str, error: Union[Exception, str]) -> None:
+    def _record_visibility_gap(self, operation: str, error: Exception | str) -> None:
         """Record API visibility gaps so assessment confidence reflects partial scans."""
         recorder = getattr(self.checker, "record_visibility_gap", None)
         if callable(recorder):
