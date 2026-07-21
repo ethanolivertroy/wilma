@@ -13,69 +13,31 @@ from wilma.enums import RiskLevel
 class TestResourceTagging:
     """Test resource tagging compliance checks."""
 
-    def test_untagged_foundation_model(self, mock_checker):
-        """Test detection of foundation models without required tags."""
-        # Configure Bedrock mock to return foundation models
+    def test_foundation_models_are_not_tag_checked(self, mock_checker):
+        """AWS-owned foundation models cannot carry account resource tags."""
         mock_checker.bedrock.list_foundation_models.return_value = {
             'modelSummaries': [
                 {
                     'modelId': 'anthropic.claude-v2',
-                    'modelArn': 'arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-v2'
+                    'modelArn': 'arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-v2',
                 }
             ]
         }
-        # No tags on this model
-        mock_checker.bedrock.list_tags_for_resource.return_value = {
-            'tags': []
-        }
+        mock_checker.bedrock.list_custom_models.return_value = {'modelSummaries': []}
 
-        # Run check
-        tagging_checks = TaggingSecurityChecks(mock_checker)
-        tagging_checks.check_resource_tagging()
+        TaggingSecurityChecks(mock_checker).check_resource_tagging()
 
-        # Verify LOW finding for missing tags
-        low_findings = [f for f in mock_checker.findings if f.get('risk_level') == RiskLevel.LOW]
-        assert len(low_findings) > 0
+        mock_checker.bedrock.list_foundation_models.assert_not_called()
+        mock_checker.bedrock.list_tags_for_resource.assert_not_called()
+        assert mock_checker.findings == []
 
-    def test_properly_tagged_model(self, mock_checker):
-        """Test that properly tagged models pass validation."""
-        # Configure Bedrock mock
-        mock_checker.bedrock.list_foundation_models.return_value = {
+    def test_partially_tagged_custom_model(self, mock_checker):
+        """Test detection when a custom model is missing required tags."""
+        mock_checker.bedrock.list_custom_models.return_value = {
             'modelSummaries': [
                 {
-                    'modelId': 'anthropic.claude-v2',
-                    'modelArn': 'arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-v2'
-                }
-            ]
-        }
-        # Model has all required tags
-        mock_checker.bedrock.list_tags_for_resource.return_value = {
-            'tags': [
-                {'key': 'Environment', 'value': 'production'},
-                {'key': 'Owner', 'value': 'ml-team'},
-                {'key': 'Project', 'value': 'chatbot'},
-                {'key': 'DataClassification', 'value': 'confidential'}
-            ]
-        }
-
-        # Run check
-        tagging_checks = TaggingSecurityChecks(mock_checker)
-        tagging_checks.check_resource_tagging()
-
-        # Verify no LOW findings (all required tags present)
-        low_findings = [f for f in mock_checker.findings
-                       if f.get('risk_level') == RiskLevel.LOW
-                       and 'missing tags' in f.get('title', '').lower()]
-        assert len(low_findings) == 0
-
-    def test_partially_tagged_model(self, mock_checker):
-        """Test detection when some but not all required tags are present."""
-        # Configure Bedrock mock
-        mock_checker.bedrock.list_foundation_models.return_value = {
-            'modelSummaries': [
-                {
-                    'modelId': 'anthropic.claude-v2',
-                    'modelArn': 'arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-v2'
+                    'modelName': 'custom-model-1',
+                    'modelArn': 'arn:aws:bedrock:us-east-1:123456789012:custom-model/custom-model-1',
                 }
             ]
         }
