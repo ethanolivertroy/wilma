@@ -205,6 +205,19 @@ mypy src/wilma --show-error-codes --pretty
 The project uses mocked AWS clients in tests. No real AWS credentials are required for the test suite.
 Mypy is currently informational while type hints are tightened; CI does not block on it.
 
+## Optional live demo fixture
+
+`scripts/demo_setup.py` creates deliberately insecure Bedrock-adjacent resources so you can validate that Wilma finds them. It is **not** part of the mocked test suite. Use only a dedicated, non-production AWS account and clean it up immediately after testing.
+
+```bash
+pip install -e ".[dev,demo]"
+python scripts/demo_setup.py --setup --profile <test-profile> --region us-east-1
+python scripts/demo_setup.py --test --profile <test-profile> --region us-east-1
+python scripts/demo_setup.py --cleanup --profile <test-profile> --region us-east-1
+```
+
+The demo provisions real AWS resources, including OpenSearch Serverless, and can incur charges. Do not run it against production or with credentials that can reach production resources.
+
 ## Release Notes
 
 `0.2.0` is the reboot foundation:

@@ -74,23 +74,9 @@ class TaggingSecurityChecks:
         print("[CHECK] Checking resource organization...")
 
         try:
-            foundation_models = self.checker.bedrock.list_foundation_models()
-            for model in foundation_models.get('modelSummaries', []):
-                model_id = model.get('modelId', 'unknown-model')
-                model_arn = model.get('modelArn')
-                if not model_arn:
-                    continue
-
-                try:
-                    tags_response = self.checker.bedrock.list_tags_for_resource(resourceARN=model_arn)
-                    self._check_required_tags(f"Foundation Model: {model_id}", model_arn, tags_response)
-                except ClientError as e:
-                    error_code = e.response['Error']['Code']
-                    if error_code not in ['AccessDenied', 'ResourceNotFoundException']:
-                        handle_aws_error(e, f"checking tags for model {model_id}", log_access_denied=False)
-                except Exception as e:
-                    print(f"[WARN] Unexpected error checking model {model_id}: {str(e)}")
-
+            # Foundation models are AWS-owned resources. Their ARNs are not taggable
+            # by customer accounts, and calling ListTagsForResource for them returns
+            # ValidationException. Only assess taggable, account-owned resources.
             custom_models = self.checker.bedrock.list_custom_models()
             for model in custom_models.get('modelSummaries', []):
                 model_name = model['modelName']

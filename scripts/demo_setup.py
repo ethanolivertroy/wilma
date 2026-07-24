@@ -19,7 +19,7 @@ Usage:
     python scripts/demo_setup.py --cleanup    # Delete all resources
     python scripts/demo_setup.py --all        # Full cycle (setup → test → cleanup)
 
-Cost: Minimal (< $0.10, usually free tier eligible)
+Cost: OpenSearch Serverless can incur charges. Use a dedicated test account and clean up promptly.
 WARNING: Real AWS resources are created - remember to cleanup!
 """
 
@@ -72,6 +72,7 @@ class WilmaDemo:
         self.bedrock_agent = self.session.client('bedrock-agent')
         self.aoss = self.session.client('opensearchserverless')
         self.region = region
+        self.profile = profile
         self.account_id = self.session.client('sts').get_caller_identity()['Account']
 
         print(f"[INFO] Initialized demo for account {self.account_id} in region {self.region}")
@@ -83,7 +84,7 @@ class WilmaDemo:
         print("=" * 70)
         print("\n[WARNING] This will create real AWS resources with security issues.")
         print("          These are for demonstration purposes only.")
-        print(f"          Estimated cost: $0.00 - $0.10 (usually free tier)\n")
+        print("          Cost: variable; OpenSearch Serverless can incur charges.\n")
 
         try:
             # Step 1: Create S3 bucket (intentionally insecure)
@@ -161,12 +162,16 @@ class WilmaDemo:
         print("=" * 70)
 
         try:
-            print("\n[INFO] Running: wilma --region " + self.region)
+            command = ['wilma', '--region', self.region]
+            if self.profile:
+                command.extend(['--profile', self.profile])
+
+            print("\n[INFO] Running: " + " ".join(command))
             print("[INFO] This will scan all Bedrock resources including the demo KB\n")
 
-            # Run Wilma
-            result = subprocess.run(
-                ['wilma', '--region', self.region],
+            # The executable is fixed and all values remain individual argv elements.
+            result = subprocess.run(  # nosec B603
+                command,
                 capture_output=True,
                 text=True
             )
@@ -181,7 +186,10 @@ class WilmaDemo:
             print("\nWilma should have detected the intentional security issues.")
             print("Next step: Run 'python scripts/demo_setup.py --cleanup' to remove demo resources")
 
-            return result.returncode == 0
+            # Wilma returns 1/2 for high/critical findings, which are the
+            # expected result for this deliberately insecure fixture. Only a
+            # runtime error (3) means the demo scan itself failed.
+            return result.returncode in (0, 1, 2)
 
         except FileNotFoundError:
             print("\n[ERROR] 'wilma' command not found.")
@@ -849,10 +857,15 @@ def main():
     success = True
 
     if args.all:
-        success = demo.setup() and success
-        if success:
-            time.sleep(5)  # Wait for resources to be fully created
-            success = demo.test() and success
+        setup_success = demo.setup()
+        success = setup_success and success
+        try:
+            if setup_success:
+                time.sleep(5)  # Wait for resources to be fully created
+                success = demo.test() and success
+        finally:
+            # Setup can partially create resources before reporting failure;
+            # test errors must not strand a costly, insecure fixture either.
             time.sleep(2)
             success = demo.cleanup() and success
     else:
