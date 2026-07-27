@@ -6,7 +6,7 @@ pytest-xdist>=3.8.0  # Parallel test execution
 moto[bedrock,s3,iam,ec2,logs]>=5.2.2  # Realistic AWS service mocking
 
 # Code quality and linting
-ruff>=0.15.22
+ruff>=0.16.0
 
 # Security scanning
 bandit>=1.8.6
